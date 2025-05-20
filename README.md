@@ -1,4 +1,7 @@
-CLIP Extension for Threat Exchange
+A fork of [CLIP Extension for Threat Exchange](https://pypi.org/project/tx-extension-clip/0.2.5).
+The remainder of this README is copied from the original repository, although some links are broken.
+
+# CLIP Extension for Threat Exchange
 
 https://github.com/TechnologyCoalitionOrg/tx-extension-clip
 

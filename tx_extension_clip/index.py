@@ -16,6 +16,7 @@ from tx_extension_clip.matcher import (
     CLIPHashIndex,
     CLIPMultiHashIndex,
 )
+from tx_extension_clip.config import BITS_IN_CLIP
 
 CLIP_CONFIDENT_MATCH_THRESHOLD = 0.01
 CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD = 0.02
@@ -68,6 +69,101 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
                 )
             )
         return matches
+
+    def _convert_threshold_to_int(self, threshold: t.Union[float, int]) -> int:
+        """
+        Convert threshold to integer for FAISS.
+        
+        Parameters
+        ----------
+        threshold: float or int
+            The threshold value to convert
+            
+        Returns
+        -------
+        int
+            Integer threshold value for FAISS
+        """
+        if isinstance(threshold, float) and threshold <= 1.0:
+            # For multi-hash index, we need to convert cosine distance to hamming distance
+            return int(threshold * (BITS_IN_CLIP // 16))  # Scale for multi-hash
+        return int(threshold)
+
+    def query_threshold(self, hash: str, threshold: float) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Query for all matches below a distance threshold using FAISS range_search.
+        
+        Parameters
+        ----------
+        hash: str
+            The CLIP hash to query against the index
+        threshold: float
+            The distance threshold. All matches with distance <= threshold will be returned.
+            
+        Returns
+        -------
+        sequence of matches
+            All matches with distance <= threshold, sorted by distance (closest first)
+        """
+        # Convert float threshold to integer for FAISS if needed
+        threshold_int = self._convert_threshold_to_int(threshold)
+
+        # Use FAISS range_search via search_with_distance_in_result
+        results = self.index.search_with_distance_in_result([hash], threshold_int)
+        
+        matches = []
+        for id, _, distance in results[hash]:
+            matches.append(
+                IndexMatchUntyped(
+                    SignalSimilarityInfoWithIntDistance(int(distance)),
+                    self.local_id_to_entry[id][1],
+                )
+            )
+        
+        # Sort by distance (closest first)
+        matches.sort(key=lambda x: x.similarity_info.distance)
+        return matches
+
+    def query_topk(self, hash: str, k: int, max_threshold: t.Optional[float] = None) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Query for top k matches using FAISS search.
+        
+        Parameters
+        ----------
+        hash: str
+            The CLIP hash to query against the index
+        k: int
+            The number of top matches to return
+        max_threshold: float, optional
+            Maximum distance threshold to consider. If provided, filters results after FAISS search.
+            
+        Returns
+        -------
+        sequence of matches
+            Top k matches sorted by distance (closest first)
+        """
+        # Use FAISS search for top-k (more efficient than range_search for this use case)
+        results = self.index.search_topk([hash], k)
+        
+        matches = []
+        for id, _, distance in results[hash]:
+            # Apply max_threshold filter if specified
+            if max_threshold is not None:
+                max_threshold_int = self._convert_threshold_to_int(max_threshold)
+                if distance > max_threshold_int:
+                    continue
+            
+            matches.append(
+                IndexMatchUntyped(
+                    SignalSimilarityInfoWithIntDistance(int(distance)),
+                    self.local_id_to_entry[id][1],
+                )
+            )
+        
+        # Results are already sorted by distance from FAISS search
+        return matches
+
+
 
     def add(self, signal_str: str, entry: IndexT) -> None:
         self.add_all(((signal_str, entry),))

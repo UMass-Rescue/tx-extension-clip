@@ -126,6 +126,60 @@ class CLIPHashIndex(ABC):
             result[query] = match_tuples
         return result
 
+    def search_topk(
+        self,
+        queries: t.Sequence[str],
+        k: int,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+        """
+        Search method that returns the top k closest matches for each query.
+        
+        This method uses FAISS search (not range_search) which is optimized for finding
+        the k nearest neighbors rather than all matches within a threshold.
+
+        Parameters
+        ----------
+        queries: sequence of CLIP Hashes
+            The CLIP hashes to query against the index
+        k: int
+            The number of top matches to return for each query
+
+        Returns
+        -------
+        dict mapping query_str => list of (id, hash, distance) tuples
+            For each query, returns the top k matches sorted by distance (closest first)
+        """
+
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
+        ]
+        qs = numpy.array(query_vectors)
+        
+        # Use FAISS search for top-k (more efficient than range_search for this use case)
+        similarities, I = self.faiss_index.search(qs, k)
+
+        # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
+        # int64s, so we need to reverse this before returning them back to the caller. For non custom ids, this will
+        # effectively return the same result
+        output_fn: t.Callable[[int], t.Any] = int64_to_uint64
+
+        result = {}
+        for i, query in enumerate(queries):
+            match_tuples = []
+            matches = [idx.item() for idx in I[i]]
+            distances = [dist for dist in similarities[i]]
+            
+            # Filter out invalid indices (FAISS returns -1 for invalid results)
+            for match, distance in zip(matches, distances):
+                if match != -1:  # FAISS returns -1 for invalid indices
+                    # (Id, Hash, Distance)
+                    match_tuples.append((output_fn(match), self.hash_at(match), distance))
+            
+            result[query] = match_tuples
+        return result
+
+
+
     def __getstate__(self):
         data = faiss.serialize_index_binary(self.faiss_index)
         return data
@@ -250,6 +304,20 @@ class CLIPMultiHashIndex(CLIPHashIndex):
     ):
         self.mih_index.nflip = threshhold // self.mih_index.nhash
         return super().search_with_distance_in_result(queries, threshhold)
+
+    def search_topk(
+        self,
+        queries: t.Sequence[str],
+        k: int,
+    ):
+        # For multi-hash index, we need to set nflip for the underlying index
+        # Use a higher threshold to ensure we get k matches
+        # Using threshold of 64 to ensure sufficient coverage for top-k
+        threshold = 64
+        self.mih_index.nflip = threshold // self.mih_index.nhash
+        return super().search_topk(queries, k)
+
+
 
     def hash_at(self, idx: int) -> str:
         i64_id = uint64_to_int64(idx)

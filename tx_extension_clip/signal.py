@@ -39,7 +39,7 @@ class CLIPSignal(
 
     @classmethod
     def get_index_cls(cls) -> t.Type[CLIPIndex]:
-        return TrivialCLIPIndex
+        return CLIPIndex
 
     @classmethod
     def validate_signal_str(cls, signal_str: str) -> str:

@@ -163,7 +163,49 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         # Results are already sorted by distance from FAISS search
         return matches
 
+    def serialize(self, fout: t.BinaryIO) -> None:
+        """Serialize the CLIPIndex to a binary stream"""
+        import pickle
+        # Use pickle for now - may need custom serialization if FAISS issues arise
+        pickle.dump(self, fout)
 
+    @classmethod
+    def deserialize(cls: t.Type["CLIPIndex"], fin: t.BinaryIO) -> "CLIPIndex":
+        """Deserialize a CLIPIndex from a binary stream"""
+        import pickle
+        return pickle.load(fin)
+
+    @classmethod
+    def build(cls: t.Type["CLIPIndex"], entries: t.Iterable[t.Tuple[str, IndexT]]) -> "CLIPIndex":
+        """Build a CLIPIndex from entries"""
+        ret = cls()
+        ret.add_all(entries)
+        return ret
+
+    def __getstate__(self) -> dict:
+        """Get state for pickling - needed because FAISS indexes require special serialization"""
+        return {
+            'local_id_to_entry': self.local_id_to_entry,
+            'index_data': self.index.__getstate__(),
+            'index_type': type(self.index).__name__,
+        }
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore state from pickling - needed to reconstruct the correct FAISS index type"""
+        self.local_id_to_entry = state['local_id_to_entry']
+        
+        # Recreate the appropriate index type
+        index_type = state['index_type']
+        if index_type == 'CLIPMultiHashIndex':
+            self.index = self._get_empty_index()  # Uses the class's default
+        elif index_type == 'CLIPFlatHashIndex':
+            from tx_extension_clip.matcher import CLIPFlatHashIndex
+            self.index = CLIPFlatHashIndex()
+        else:
+            raise ValueError(f"Unknown index type: {index_type}")
+        
+        # Restore the FAISS index data
+        self.index.__setstate__(state['index_data'])
 
     def add(self, signal_str: str, entry: IndexT) -> None:
         self.add_all(((signal_str, entry),))
@@ -194,3 +236,10 @@ class CLIPFlatIndex(CLIPIndex):
     @classmethod
     def _get_empty_index(cls) -> CLIPHashIndex:
         return CLIPFlatHashIndex()
+
+    @classmethod
+    def build(cls: t.Type["CLIPFlatIndex"], entries: t.Iterable[t.Tuple[str, IndexT]]) -> "CLIPFlatIndex":
+        """Build a CLIPFlatIndex from entries"""
+        ret = cls()
+        ret.add_all(entries)
+        return ret

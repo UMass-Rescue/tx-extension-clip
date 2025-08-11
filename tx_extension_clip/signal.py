@@ -68,7 +68,9 @@ class CLIPSignal(
         vec2: np.ndarray = np.frombuffer(binascii.unhexlify(bytes(hash2, 'ascii')), dtype=np.float32)
         distance: float = cosine_distance(vec1, vec2)
         print(distance)
-        return signal_base.SignalComparisonResult.from_dist(distance, threshold)
+        print(type(distance))
+        distance = float(distance)
+        return signal_base.SignalComparisonResult(True, distance)
 
     @staticmethod
     def get_examples() -> t.List[str]:

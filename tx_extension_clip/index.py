@@ -91,13 +91,13 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         - FAISS binary indexes report distances in Hamming space. Tests that assert on distance
           should compare FAISS-returned distances to this integer value, not to the raw cosine d.
         """
-        # Float thresholds are cosine-distance in [0,1] → scale to full-vector Hamming distance
-        if isinstance(threshold, float):
-            # Clamp to [0.0, 1.0] to avoid accidental overshoot
-            clamped = max(0.0, min(1.0, threshold))
-            return int(round(clamped * BITS_IN_CLIP))
-        # Integer thresholds are already Hamming distances; clamp to valid range
-        return max(0, min(int(threshold), BITS_IN_CLIP))
+        # Float thresholds are cosine-distance in [0,1]
+        # Map to an integer Hamming radius using a conservative scale aligned
+        # with the default number of MIH sub-hashes (nhash=16).
+        # Always treat the input threshold as a float in [0,1]
+        clamped = max(0.0, min(1.0, float(threshold)))
+        per_subhash_bits = BITS_IN_CLIP // 16  # default nhash in CLIPMultiHashIndex
+        return int(round(clamped * per_subhash_bits))
 
     def query_threshold(self, hash: str, threshold: float) -> t.Sequence[CLIPIndexMatch[IndexT]]:
         """

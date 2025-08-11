@@ -310,11 +310,26 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         queries: t.Sequence[str],
         k: int,
     ):
-        # Simple and robust: set MIH flip budget to the maximum per sub-hash to maximize recall,
-        # then rely on faiss top-k search to return up to k results.
-        # If the index has fewer than k items, faiss will return what's available.
-        self.mih_index.nflip = BITS_IN_CLIP // int(self.mih_index.nhash)
-        return super().search_topk(queries, k)
+        # Keep MIH candidate expansion modest for performance.
+        # Use a small default flip budget and increase only if needed.
+        bits_per_hashmap = BITS_IN_CLIP // int(self.mih_index.nhash)
+
+        # Start with a conservative nflip to keep search fast.
+        # Empirically, values in [2, 8] work well for CLIP MIH.
+        nflip = min(4, bits_per_hashmap)
+        self.mih_index.nflip = nflip
+
+        # Perform initial search
+        result = super().search_topk(queries, k)
+
+        # If any query returns fewer than k valid results and we haven't reached the cap,
+        # try once more with a slightly higher nflip to improve recall.
+        needs_more = any(len(v) < k for v in result.values())
+        if needs_more and nflip < bits_per_hashmap:
+            self.mih_index.nflip = min(bits_per_hashmap, max(nflip + 2, nflip * 2))
+            result = super().search_topk(queries, k)
+
+        return result
 
 
 

@@ -72,22 +72,32 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
 
     def _convert_threshold_to_int(self, threshold: t.Union[float, int]) -> int:
         """
-        Convert threshold to integer for FAISS.
+        Convert a cosine-distance threshold to an integer Hamming threshold for FAISS.
         
         Parameters
         ----------
         threshold: float or int
-            The threshold value to convert
+            If float in [0.0, 1.0], interpreted as cosine distance with a maximum of 1.0.
+            If int, assumed to already be a Hamming-distance threshold in [0, BITS_IN_CLIP].
             
         Returns
         -------
         int
-            Integer threshold value for FAISS
+            Integer Hamming threshold value for FAISS (0..BITS_IN_CLIP)
+
+        Notes
+        -----
+        - Cosine distance d in [0,1] is mapped to a Hamming limit H = round(d * BITS_IN_CLIP).
+        - FAISS binary indexes report distances in Hamming space. Tests that assert on distance
+          should compare FAISS-returned distances to this integer value, not to the raw cosine d.
         """
-        if isinstance(threshold, float) and threshold <= 1.0:
-            # For multi-hash index, we need to convert cosine distance to hamming distance
-            return int(threshold * (BITS_IN_CLIP // 16))  # Scale for multi-hash
-        return int(threshold)
+        # Float thresholds are cosine-distance in [0,1] → scale to full-vector Hamming distance
+        if isinstance(threshold, float):
+            # Clamp to [0.0, 1.0] to avoid accidental overshoot
+            clamped = max(0.0, min(1.0, threshold))
+            return int(round(clamped * BITS_IN_CLIP))
+        # Integer thresholds are already Hamming distances; clamp to valid range
+        return max(0, min(int(threshold), BITS_IN_CLIP))
 
     def query_threshold(self, hash: str, threshold: float) -> t.Sequence[CLIPIndexMatch[IndexT]]:
         """
@@ -98,12 +108,14 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         hash: str
             The CLIP hash to query against the index
         threshold: float
-            The distance threshold. All matches with distance <= threshold will be returned.
+            Cosine-distance threshold in [0,1]. Internally converted to a Hamming threshold
+            for FAISS. All matches with Hamming distance <= converted threshold are returned.
             
         Returns
         -------
         sequence of matches
-            All matches with distance <= threshold, sorted by distance (closest first)
+            All matches within the converted Hamming threshold, sorted by Hamming distance
+            (closest first). Cosine and Hamming distances are correlated but not identical.
         """
         # Convert float threshold to integer for FAISS if needed
         threshold_int = self._convert_threshold_to_int(threshold)
@@ -124,7 +136,7 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         matches.sort(key=lambda x: x.similarity_info.distance)
         return matches
 
-    def query_topk(self, hash: str, k: int, max_threshold: t.Optional[float] = None) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+    def query_topk(self, hash: str, k: int) -> t.Sequence[CLIPIndexMatch[IndexT]]:
         """
         Query for top k matches using FAISS search.
         
@@ -134,8 +146,6 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
             The CLIP hash to query against the index
         k: int
             The number of top matches to return
-        max_threshold: float, optional
-            Maximum distance threshold to consider. If provided, filters results after FAISS search.
             
         Returns
         -------
@@ -147,12 +157,6 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         
         matches = []
         for id, _, distance in results[hash]:
-            # Apply max_threshold filter if specified
-            if max_threshold is not None:
-                max_threshold_int = self._convert_threshold_to_int(max_threshold)
-                if distance > max_threshold_int:
-                    continue
-            
             matches.append(
                 IndexMatchUntyped(
                     SignalSimilarityInfoWithIntDistance(int(distance)),

@@ -310,11 +310,10 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         queries: t.Sequence[str],
         k: int,
     ):
-        # For multi-hash index, we need to set nflip for the underlying index
-        # Use a higher threshold to ensure we get k matches
-        # Using threshold of 64 to ensure sufficient coverage for top-k
-        threshold = 64
-        self.mih_index.nflip = int(threshold) // int(self.mih_index.nhash)
+        # Simple and robust: set MIH flip budget to the maximum per sub-hash to maximize recall,
+        # then rely on faiss top-k search to return up to k results.
+        # If the index has fewer than k items, faiss will return what's available.
+        self.mih_index.nflip = BITS_IN_CLIP // int(self.mih_index.nhash)
         return super().search_topk(queries, k)
 
 

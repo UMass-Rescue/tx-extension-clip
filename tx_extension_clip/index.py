@@ -94,7 +94,6 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         # Float thresholds are cosine-distance in [0,1]
         # Map to an integer Hamming radius using a conservative scale aligned
         # with the default number of MIH sub-hashes (nhash=16).
-        # Always treat the input threshold as a float in [0,1]
         clamped = max(0.0, min(1.0, float(threshold)))
         per_subhash_bits = BITS_IN_CLIP // 16  # default nhash in CLIPMultiHashIndex
         return int(round(clamped * per_subhash_bits))
@@ -127,7 +126,8 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         for id, _, distance in results[hash]:
             matches.append(
                 IndexMatchUntyped(
-                    SignalSimilarityInfoWithIntDistance(int(distance)),
+                    # Keep FAISS-reported distance as float for parity with search_* APIs
+                    SignalSimilarityInfoWithIntDistance(distance),
                     self.local_id_to_entry[id][1],
                 )
             )
@@ -159,7 +159,8 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         for id, _, distance in results[hash]:
             matches.append(
                 IndexMatchUntyped(
-                    SignalSimilarityInfoWithIntDistance(int(distance)),
+                    # Keep FAISS-reported distance as float for parity with search_* APIs
+                    SignalSimilarityInfoWithIntDistance(distance),
                     self.local_id_to_entry[id][1],
                 )
             )

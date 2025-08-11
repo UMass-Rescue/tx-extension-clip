@@ -70,7 +70,7 @@ class CLIPHashIndex(ABC):
             numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
         ]
         qs = numpy.array(query_vectors)
-        limits, _, I = self.faiss_index.range_search(qs, threshhold + 1)
+        limits, _, I = self.faiss_index.range_search(qs, int(threshhold) + 1)
 
         if return_as_ids:
             # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
@@ -108,7 +108,7 @@ class CLIPHashIndex(ABC):
             numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
         ]
         qs = numpy.array(query_vectors)
-        limits, similarities, I = self.faiss_index.range_search(qs, threshhold + 1)
+        limits, similarities, I = self.faiss_index.range_search(qs, int(threshhold) + 1)
 
         # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
         # int64s, so we need to reverse this before returning them back to the caller. For non custom ids, this will
@@ -294,7 +294,7 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         threshhold: int,
         return_as_ids: bool = False,
     ):
-        self.mih_index.nflip = threshhold // self.mih_index.nhash
+        self.mih_index.nflip = int(threshhold) // int(self.mih_index.nhash)
         return super().search(queries, threshhold, return_as_ids)
 
     def search_with_distance_in_result(
@@ -302,7 +302,7 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         queries: t.Sequence[str],
         threshhold: int,
     ):
-        self.mih_index.nflip = threshhold // self.mih_index.nhash
+        self.mih_index.nflip = int(threshhold) // int(self.mih_index.nhash)
         return super().search_with_distance_in_result(queries, threshhold)
 
     def search_topk(
@@ -314,7 +314,7 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         # Use a higher threshold to ensure we get k matches
         # Using threshold of 64 to ensure sufficient coverage for top-k
         threshold = 64
-        self.mih_index.nflip = threshold // self.mih_index.nhash
+        self.mih_index.nflip = int(threshold) // int(self.mih_index.nhash)
         return super().search_topk(queries, k)
 
 

@@ -1,133 +1,109 @@
 """
-Implementation of SignalTypeIndex abstraction for CLIP by wrapping `matcher`
+Implementation of SignalTypeIndex abstraction for CLIP using float-based indexes with cosine similarity
 """
 
 import typing as t
+import numpy
 
 from threatexchange.signal_type.index import (
     IndexMatchUntyped,
-    SignalSimilarityInfoWithIntDistance,
+    SignalSimilarityInfoWithSingleDistance,
     SignalTypeIndex,
 )
 from threatexchange.signal_type.index import T as IndexT
 
 from tx_extension_clip.matcher import (
-    CLIPFlatHashIndex,
-    CLIPHashIndex,
-    CLIPMultiHashIndex,
+    CLIPFlatFloatIndex as CLIPFlatFloatIndexMatcher,
+    CLIPIVFFlatFloatIndex as CLIPIVFFlatFloatIndexMatcher,
 )
-from tx_extension_clip.config import BITS_IN_CLIP
+from tx_extension_clip.config import (
+    CLIP_CONFIDENT_MATCH_THRESHOLD,
+    CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD,
+)
 
-CLIP_CONFIDENT_MATCH_THRESHOLD = 0.01
-CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD = 0.02
-
-CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithIntDistance, IndexT]
+CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithSingleDistance[float], IndexT]
 
 
-class CLIPIndex(SignalTypeIndex[IndexT]):
+class CLIPFloatIndexBase(SignalTypeIndex[IndexT]):
     """
-    Wrapper around the CLIP faiss index lib using CLIPMultiHashIndex
+    Base class for CLIP indexes that work with float embeddings and cosine similarity.
+    These indexes work with the original CLIP embeddings rather than binary hashes.
     """
 
     @classmethod
     def get_match_threshold(cls):
         """
-        Distance should be 0.01
-        Similarity should be 0.990020
+        Default cosine distance threshold for confident matches.
+        Distance of 0.1 corresponds to 90% cosine similarity.
         """
         return CLIP_CONFIDENT_MATCH_THRESHOLD
 
     @classmethod
-    def _get_empty_index(cls) -> CLIPHashIndex:
-        return CLIPMultiHashIndex()
+    def _get_empty_index(cls):
+        """Override in subclasses to return the appropriate float index"""
+        raise NotImplementedError
 
-    def __init__(self, entries: t.Iterable[t.Tuple[str, IndexT]] = ()) -> None:
+    def __init__(self, entries: t.Iterable[t.Tuple[numpy.ndarray, IndexT]] = ()) -> None:
         super().__init__()
-        self.local_id_to_entry: t.List[t.Tuple[str, IndexT]] = []
-        self.index: CLIPHashIndex = self._get_empty_index()
+        self.local_id_to_entry: t.List[t.Tuple[numpy.ndarray, IndexT]] = []
+        self.index = self._get_empty_index()
         self.add_all(entries=entries)
 
     def __len__(self) -> int:
         return len(self.local_id_to_entry)
 
-    def query(self, hash: str) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+    def query(self, embedding: numpy.ndarray) -> t.Sequence[CLIPIndexMatch[IndexT]]:
         """
-        Look up entries against the index, up to the max supported distance.
+        Look up entries against the index using cosine similarity.
+        
+        Parameters
+        ----------
+        embedding: numpy.ndarray
+            The CLIP embedding to query against the index
+            
+        Returns
+        -------
+        sequence of matches
+            All matches within the confident match threshold, sorted by distance
         """
-
-        # query takes a signal hash but index supports batch queries hence [hash]
         results = self.index.search_with_distance_in_result(
-            [hash], self.get_match_threshold()
+            [embedding], self.get_match_threshold()
         )
 
         matches = []
-        for id, _, distance in results[hash]:
+        for id, _, distance in results[0]:  # results[0] because we only have one query
             matches.append(
                 IndexMatchUntyped(
-                    SignalSimilarityInfoWithIntDistance(int(distance)),
+                    SignalSimilarityInfoWithSingleDistance[float](float(distance)),  # Preserve float precision
                     self.local_id_to_entry[id][1],
                 )
             )
         return matches
 
-    def _convert_threshold_to_int(self, threshold: t.Union[float, int]) -> int:
+    def query_threshold(self, embedding: numpy.ndarray, threshold: float) -> t.Sequence[CLIPIndexMatch[IndexT]]:
         """
-        Convert a cosine-distance threshold to an integer Hamming threshold for FAISS.
+        Query for all matches below a cosine distance threshold.
         
         Parameters
         ----------
-        threshold: float or int
-            If float in [0.0, 1.0], interpreted as cosine distance with a maximum of 1.0.
-            If int, assumed to already be a Hamming-distance threshold in [0, BITS_IN_CLIP].
-            
-        Returns
-        -------
-        int
-            Integer Hamming threshold value for FAISS (0..BITS_IN_CLIP)
-
-        Notes
-        -----
-        - Cosine distance d in [0,1] is mapped to a Hamming limit H = round(d * BITS_IN_CLIP).
-        - FAISS binary indexes report distances in Hamming space. Tests that assert on distance
-          should compare FAISS-returned distances to this integer value, not to the raw cosine d.
-        """
-        # Float thresholds are cosine-distance in [0,1]
-        # Map to an integer Hamming radius using a conservative scale aligned
-        # with the default number of MIH sub-hashes (nhash=16).
-        clamped = max(0.0, min(1.0, float(threshold)))
-        per_subhash_bits = BITS_IN_CLIP // 16  # default nhash in CLIPMultiHashIndex
-        return int(round(clamped * per_subhash_bits))
-
-    def query_threshold(self, hash: str, threshold: float) -> t.Sequence[CLIPIndexMatch[IndexT]]:
-        """
-        Query for all matches below a distance threshold using FAISS range_search.
-        
-        Parameters
-        ----------
-        hash: str
-            The CLIP hash to query against the index
+        embedding: numpy.ndarray
+            The CLIP embedding to query against the index
         threshold: float
-            Cosine-distance threshold in [0,1]. Internally converted to a Hamming threshold
-            for FAISS. All matches with Hamming distance <= converted threshold are returned.
+            Cosine distance threshold in [0,1]. Lower values mean more similar.
+            A threshold of 0.1 means 90% cosine similarity.
             
         Returns
         -------
         sequence of matches
-            All matches within the converted Hamming threshold, sorted by Hamming distance
-            (closest first). Cosine and Hamming distances are correlated but not identical.
+            All matches within the threshold, sorted by distance (closest first)
         """
-        # Convert float threshold to integer for FAISS if needed
-        threshold_int = self._convert_threshold_to_int(threshold)
-
-        # Use FAISS range_search via search_with_distance_in_result
-        results = self.index.search_with_distance_in_result([hash], threshold_int)
+        results = self.index.search_with_distance_in_result([embedding], threshold)
         
         matches = []
-        for id, _, distance in results[hash]:
+        for id, _, distance in results[0]:  # results[0] because we only have one query
             matches.append(
                 IndexMatchUntyped(
-                    # Keep FAISS-reported distance as float for parity with search_* APIs
-                    SignalSimilarityInfoWithIntDistance(distance),
+                    SignalSimilarityInfoWithSingleDistance[float](float(distance)),  # Preserve float precision
                     self.local_id_to_entry[id][1],
                 )
             )
@@ -136,14 +112,14 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         matches.sort(key=lambda x: x.similarity_info.distance)
         return matches
 
-    def query_topk(self, hash: str, k: int) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+    def query_topk(self, embedding: numpy.ndarray, k: int) -> t.Sequence[CLIPIndexMatch[IndexT]]:
         """
-        Query for top k matches using FAISS search.
+        Query for top k matches using cosine similarity.
         
         Parameters
         ----------
-        hash: str
-            The CLIP hash to query against the index
+        embedding: numpy.ndarray
+            The CLIP embedding to query against the index
         k: int
             The number of top matches to return
             
@@ -152,15 +128,13 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         sequence of matches
             Top k matches sorted by distance (closest first)
         """
-        # Use FAISS search for top-k (more efficient than range_search for this use case)
-        results = self.index.search_topk([hash], k)
+        results = self.index.search_topk([embedding], k)
         
         matches = []
-        for id, _, distance in results[hash]:
+        for id, _, distance in results[0]:  # results[0] because we only have one query
             matches.append(
                 IndexMatchUntyped(
-                    # Keep FAISS-reported distance as float for parity with search_* APIs
-                    SignalSimilarityInfoWithIntDistance(distance),
+                    SignalSimilarityInfoWithSingleDistance[float](float(distance)),  # Preserve float precision
                     self.local_id_to_entry[id][1],
                 )
             )
@@ -169,26 +143,25 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         return matches
 
     def serialize(self, fout: t.BinaryIO) -> None:
-        """Serialize the CLIPIndex to a binary stream"""
+        """Serialize the CLIPFloatIndexBase to a binary stream"""
         import pickle
-        # Use pickle for now - may need custom serialization if FAISS issues arise
         pickle.dump(self, fout)
 
     @classmethod
-    def deserialize(cls: t.Type["CLIPIndex"], fin: t.BinaryIO) -> "CLIPIndex":
-        """Deserialize a CLIPIndex from a binary stream"""
+    def deserialize(cls: t.Type["CLIPFloatIndexBase"], fin: t.BinaryIO) -> "CLIPFloatIndexBase":
+        """Deserialize a CLIPFloatIndexBase from a binary stream"""
         import pickle
         return pickle.load(fin)
 
     @classmethod
-    def build(cls: t.Type["CLIPIndex"], entries: t.Iterable[t.Tuple[str, IndexT]]) -> "CLIPIndex":
-        """Build a CLIPIndex from entries"""
+    def build(cls: t.Type["CLIPFloatIndexBase"], entries: t.Iterable[t.Tuple[numpy.ndarray, IndexT]]) -> "CLIPFloatIndexBase":
+        """Build a CLIPFloatIndexBase from entries"""
         ret = cls()
         ret.add_all(entries)
         return ret
 
     def __getstate__(self) -> dict:
-        """Get state for pickling - needed because FAISS indexes require special serialization"""
+        """Get state for pickling"""
         return {
             'local_id_to_entry': self.local_id_to_entry,
             'index_data': self.index.__getstate__(),
@@ -196,42 +169,40 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         }
 
     def __setstate__(self, state: dict) -> None:
-        """Restore state from pickling - needed to reconstruct the correct FAISS index type"""
+        """Restore state from pickling"""
         self.local_id_to_entry = state['local_id_to_entry']
         
         # Recreate the appropriate index type
         index_type = state['index_type']
-        if index_type == 'CLIPMultiHashIndex':
-            self.index = self._get_empty_index()  # Uses the class's default
-        elif index_type == 'CLIPFlatHashIndex':
-            from tx_extension_clip.matcher import CLIPFlatHashIndex
-            self.index = CLIPFlatHashIndex()
+        if index_type == 'CLIPFlatFloatIndex':
+            self.index = CLIPFlatFloatIndexMatcher()
+        elif index_type == 'CLIPIVFFlatFloatIndex':
+            self.index = CLIPIVFFlatFloatIndexMatcher()
         else:
             raise ValueError(f"Unknown index type: {index_type}")
         
         # Restore the FAISS index data
         self.index.__setstate__(state['index_data'])
 
-    def add(self, signal_str: str, entry: IndexT) -> None:
-        self.add_all(((signal_str, entry),))
+    def add(self, embedding: numpy.ndarray, entry: IndexT) -> None:
+        self.add_all(((embedding, entry),))
 
-    def add_all(self, entries: t.Iterable[t.Tuple[str, IndexT]]) -> None:
+    def add_all(self, entries: t.Iterable[t.Tuple[numpy.ndarray, IndexT]]) -> None:
         start = len(self.local_id_to_entry)
         self.local_id_to_entry.extend(entries)
         if start != len(self.local_id_to_entry):
-            # This function signature is very silly
             self.index.add(
                 (e[0] for e in self.local_id_to_entry[start:]),
                 range(start, len(self.local_id_to_entry)),
             )
 
 
-class CLIPFlatIndex(CLIPIndex):
+class CLIPFlatFloatIndex(CLIPFloatIndexBase):
     """
-    Wrapper around the clip faiss index lib
-    that uses CLIPFlatHashIndex instead of CLIPMultiHashIndex
-    It also uses a high match threshold to increase recall
-    possibly as the cost of precision.
+    Wrapper around a FAISS flat float index for CLIP embeddings with cosine similarity.
+    
+    This index uses exhaustive search and provides exact results but may be slower
+    for large datasets.
     """
 
     @classmethod
@@ -239,12 +210,36 @@ class CLIPFlatIndex(CLIPIndex):
         return CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD
 
     @classmethod
-    def _get_empty_index(cls) -> CLIPHashIndex:
-        return CLIPFlatHashIndex()
+    def _get_empty_index(cls):
+        return CLIPFlatFloatIndexMatcher()
 
     @classmethod
-    def build(cls: t.Type["CLIPFlatIndex"], entries: t.Iterable[t.Tuple[str, IndexT]]) -> "CLIPFlatIndex":
-        """Build a CLIPFlatIndex from entries"""
+    def build(cls: t.Type["CLIPFlatFloatIndex"], entries: t.Iterable[t.Tuple[numpy.ndarray, IndexT]]) -> "CLIPFlatFloatIndex":
+        """Build a CLIPFlatFloatIndex from entries"""
+        ret = cls()
+        ret.add_all(entries)
+        return ret
+
+
+class CLIPIVFFlatFloatIndex(CLIPFloatIndexBase):
+    """
+    Wrapper around a FAISS IVF flat float index for CLIP embeddings with cosine similarity.
+    
+    This index uses inverted file search for faster approximate search while maintaining
+    good accuracy. Suitable for larger datasets.
+    """
+
+    @classmethod
+    def get_match_threshold(cls):
+        return CLIP_CONFIDENT_MATCH_THRESHOLD
+
+    @classmethod
+    def _get_empty_index(cls):
+        return CLIPIVFFlatFloatIndexMatcher()
+
+    @classmethod
+    def build(cls: t.Type["CLIPIVFFlatFloatIndex"], entries: t.Iterable[t.Tuple[numpy.ndarray, IndexT]]) -> "CLIPIVFFlatFloatIndex":
+        """Build a CLIPIVFFlatFloatIndex from entries"""
         ret = cls()
         ret.add_all(entries)
         return ret

@@ -1,362 +1,199 @@
-import binascii
 import typing as t
 from abc import ABC, abstractmethod
 
 import faiss
 import numpy
 
-from tx_extension_clip.config import BITS_IN_CLIP
 from tx_extension_clip.utils.uint import int64_to_uint64, uint64_to_int64
 
-CLIP_HASH_TYPE = t.Union[str, bytes]
 
-
-class CLIPHashIndex(ABC):
+class CLIPFloatIndex(ABC):
+    """
+    Abstract base class for CLIP float-based indexes that support cosine similarity.
+    These indexes work with the original float embeddings rather than binary hashes.
+    """
+    
     @abstractmethod
-    def __init__(self, faiss_index: faiss.IndexBinary) -> None:
+    def __init__(self, faiss_index: faiss.Index) -> None:
         self.faiss_index = faiss_index
         super().__init__()
 
     @abstractmethod
-    def hash_at(self, idx: int) -> str:
+    def embedding_at(self, idx: int) -> numpy.ndarray:
         """
-        Returns the hash located at the given index. The index order is determined by the initial order of hashes used to
-        create this index.
+        Returns the embedding located at the given index.
         """
         pass
 
     @abstractmethod
-    def add(self, hashes: t.Iterable[CLIP_HASH_TYPE], custom_ids: t.Iterable[int]):
+    def add(self, embeddings: t.Iterable[numpy.ndarray], custom_ids: t.Iterable[int]):
         """
-        Adds hashes and their custom ids to the CLIP index.
+        Adds embeddings and their custom ids to the CLIP index.
         """
         pass
 
-    def search(
-        self,
-        queries: t.Sequence[CLIP_HASH_TYPE],
-        threshhold: int,
-        return_as_ids: bool = False,
-    ):
-        """
-        Searches this index for CLIP hashes within the index that are no more than the threshold away from the query hashes by
-        hamming distance.
-
-        Parameters
-        ----------
-        queries: sequence of CLIP Hashes
-            The CLIP hashes to query against the index
-        threshold: int
-            Threshold value to use for this search. The hamming distance between the result hashes and the related query will
-            be no more than the threshold value. i.e., hamming_dist(q_i,r_i_j) <= threshold.
-        return_as_ids: boolean
-            whether the return values should be the index ids for the matching items. Defaults to false.
-
-        Returns
-        -------
-        sequence of matches per query
-            For each query provided in queries, the returned sequence will contain a sequence of matches within the index
-            that were within threshold hamming distance of that query. These matches will either be a hexstring of the hash
-            by default, or the index ids of the matches if `return_as_ids` is True. The inner sequences may be empty in the
-            case of no hashes within the index. The same CLIP hash may also appear in more than one inner sequence if it
-            matches multiple query hashes.
-
-            For example the hash "000000000000000000000000000000000000000000000000000000000000FFFF" would match both
-            "00000000000000000000000000000000000000000000000000000000FFFFFFFF" and
-            "0000000000000000000000000000000000000000000000000000000000000000" for a threshold of 16. Thus it would appear in
-            the entry for both the hashes if they were both in the queries list.
-        """
-        query_vectors = [
-            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
-        ]
-        qs = numpy.array(query_vectors)
-        limits, _, I = self.faiss_index.range_search(qs, int(threshhold) + 1)
-
-        if return_as_ids:
-            # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
-            # int64s, so we need to reverse this before returning them back to the caller. For non custom ids, this will
-            # effectively return the same result
-            output_fn: t.Callable[[int], t.Any] = int64_to_uint64
-        else:
-            output_fn = self.hash_at
-
-        return [
-            [output_fn(idx.item()) for idx in I[limits[i] : limits[i + 1]]]
-            for i in range(len(query_vectors))
-        ]
-
     def search_with_distance_in_result(
         self,
-        queries: t.Sequence[str],
-        threshhold: int,
-    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+        queries: t.Sequence[numpy.ndarray],
+        threshold: float,
+    ) -> t.Dict[int, t.List[t.Tuple[int, numpy.ndarray, numpy.float32]]]:
         """
-        Search method that return a mapping from query_str =>  (id, hash, distance)
-
-        This implementation is the same as `search` above however instead of returning just the sequence of matches
-        per query it returns a mapping from query strings to a list of matched hashes (or ids) and distances
-
-        e.g.
-        result = {
-            "000000000000000000000000000000000000000000000000000000000000FFFF": [
-                (12345678901, "00000000000000000000000000000000000000000000000000000000FFFFFFFF", 16.0)
-            ]
-        }
+        Search method that returns a mapping from query_idx => (id, embedding, distance)
+        
+        For cosine similarity, the distance is 1 - cosine_similarity, so lower values
+        indicate more similar embeddings.
         """
-
-        query_vectors = [
-            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
-        ]
-        qs = numpy.array(query_vectors)
-        limits, similarities, I = self.faiss_index.range_search(qs, int(threshhold) + 1)
+        qs = numpy.array(queries)
+        limits, distances, I = self.faiss_index.range_search(qs, threshold)
 
         # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
-        # int64s, so we need to reverse this before returning them back to the caller. For non custom ids, this will
-        # effectively return the same result
+        # int64s, so we need to reverse this before returning them back to the caller
         output_fn: t.Callable[[int], t.Any] = int64_to_uint64
 
         result = {}
         for i, query in enumerate(queries):
             match_tuples = []
             matches = [idx.item() for idx in I[limits[i] : limits[i + 1]]]
-            distances = [idx for idx in similarities[limits[i] : limits[i + 1]]]
-            for match, distance in zip(matches, distances):
-                # (Id, Hash, Distance)
-                match_tuples.append((output_fn(match), self.hash_at(match), distance))
-            result[query] = match_tuples
+            query_distances = [dist for dist in distances[limits[i] : limits[i + 1]]]
+            for match, distance in zip(matches, query_distances):
+                # (Id, Embedding, Distance)
+                match_tuples.append((output_fn(match), self.embedding_at(match), distance))
+            result[i] = match_tuples
         return result
 
     def search_topk(
         self,
-        queries: t.Sequence[str],
+        queries: t.Sequence[numpy.ndarray],
         k: int,
-    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+    ) -> t.Dict[int, t.List[t.Tuple[int, numpy.ndarray, numpy.float32]]]:
         """
         Search method that returns the top k closest matches for each query.
         
-        This method uses FAISS search (not range_search) which is optimized for finding
-        the k nearest neighbors rather than all matches within a threshold.
-
-        Parameters
-        ----------
-        queries: sequence of CLIP Hashes
-            The CLIP hashes to query against the index
-        k: int
-            The number of top matches to return for each query
-
-        Returns
-        -------
-        dict mapping query_str => list of (id, hash, distance) tuples
-            For each query, returns the top k matches sorted by distance (closest first)
+        For cosine similarity, returns the k most similar embeddings.
         """
-
-        query_vectors = [
-            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
-        ]
-        qs = numpy.array(query_vectors)
-        
-        # Use FAISS search for top-k (more efficient than range_search for this use case)
-        similarities, I = self.faiss_index.search(qs, k)
+        qs = numpy.array(queries)
+        distances, I = self.faiss_index.search(qs, k)
 
         # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
-        # int64s, so we need to reverse this before returning them back to the caller. For non custom ids, this will
-        # effectively return the same result
+        # int64s, so we need to reverse this before returning them back to the caller
         output_fn: t.Callable[[int], t.Any] = int64_to_uint64
 
         result = {}
         for i, query in enumerate(queries):
             match_tuples = []
             matches = [idx.item() for idx in I[i]]
-            distances = [dist for dist in similarities[i]]
+            query_distances = [dist for dist in distances[i]]
             
             # Filter out invalid indices (FAISS returns -1 for invalid results)
-            for match, distance in zip(matches, distances):
+            for match, distance in zip(matches, query_distances):
                 if match != -1:  # FAISS returns -1 for invalid indices
-                    # (Id, Hash, Distance)
-                    match_tuples.append((output_fn(match), self.hash_at(match), distance))
+                    # (Id, Embedding, Distance)
+                    match_tuples.append((output_fn(match), self.embedding_at(match), distance))
             
-            result[query] = match_tuples
+            result[i] = match_tuples
         return result
 
-
-
     def __getstate__(self):
-        data = faiss.serialize_index_binary(self.faiss_index)
+        data = faiss.serialize_index(self.faiss_index)
         return data
 
     def __setstate__(self, data):
-        self.faiss_index = faiss.deserialize_index_binary(data)
+        self.faiss_index = faiss.deserialize_index(data)
 
 
-class CLIPFlatHashIndex(CLIPHashIndex):
+class CLIPFlatFloatIndex(CLIPFloatIndex):
     """
-    Wrapper around an faiss binary index for use with searching for similar CLIP hashes
-
-    The "flat" variant uses an exhaustive search approach that may use less memory than other approaches and may be more
-    performant when using larger thresholds for CLIP similarity.
+    Wrapper around a FAISS flat float index for use with CLIP embeddings.
+    
+    This index uses exhaustive search and supports cosine similarity.
+    The embeddings should be normalized for optimal cosine similarity performance.
     """
-
-    def __init__(self):
-        faiss_index = faiss.IndexBinaryIDMap2(
-            faiss.index_binary_factory(BITS_IN_CLIP, "BFlat")
+    
+    def __init__(self, dimension: int = 512):
+        # Create a flat index with cosine similarity
+        faiss_index = faiss.IndexIDMap2(
+            faiss.index_factory(dimension, "Flat", faiss.METRIC_INNER_PRODUCT)
         )
         super().__init__(faiss_index)
+        self.dimension = dimension
 
-    def add(self, hashes: t.Iterable[CLIP_HASH_TYPE], custom_ids: t.Iterable[int]):
+    def add(self, embeddings: t.Iterable[numpy.ndarray], custom_ids: t.Iterable[int]):
         """
         Parameters
         ----------
-        hashes: sequence of CLIP Hashes
-            The CLIP hashes to create the index with
-        custom_ids: sequence of custom ids for the CLIP Hashes
-            Sequence of custom id values to use for the CLIP hashes for any
-            method relating to indexes (e.g., hash_at). If provided, the nth item in
-            custom_ids will be used as the id for the nth hash in hashes. If not provided
-            then the ids for the hashes will be assumed to be their respective index
-            in hashes (i.e., the nth hash would have id n, starting from 0).
+        embeddings: sequence of CLIP embeddings
+            The CLIP embeddings to add to the index. Should be normalized for cosine similarity.
+        custom_ids: sequence of custom ids for the embeddings
+            Sequence of custom id values to use for the embeddings.
         """
-        hash_bytes = [binascii.unhexlify(hash) for hash in hashes]
-        vectors = list(
-            map(lambda h: numpy.frombuffer(h, dtype=numpy.uint8), hash_bytes)
-        )
+        embedding_vectors = [numpy.array(emb, dtype=numpy.float32) for emb in embeddings]
+        vectors = numpy.array(embedding_vectors)
         i64_ids = list(map(uint64_to_int64, custom_ids))
-        self.faiss_index.add_with_ids(numpy.array(vectors), numpy.array(i64_ids))
+        self.faiss_index.add_with_ids(vectors, numpy.array(i64_ids))
 
-    def hash_at(self, idx: int) -> str:
+    def embedding_at(self, idx: int) -> numpy.ndarray:
         i64_id = uint64_to_int64(idx)
         vector = self.faiss_index.reconstruct(i64_id)
-        return binascii.hexlify(vector.tobytes()).decode()
+        return vector
 
 
-class CLIPMultiHashIndex(CLIPHashIndex):
+class CLIPIVFFlatFloatIndex(CLIPFloatIndex):
     """
-    Wrapper around an faiss binary index for use with searching for similar CLIP hashes
-
-    The "multi" variant uses an the Multi-Index Hashing searching technique employed by faiss's
-    IndexBinaryMultiHash binary index.
-
-    Properties:
-    nhash: int (optional)
-    Optional number of hashmaps for the underlaying faiss index to use for
-    the Multi-Index Hashing lookups.
+    Wrapper around a FAISS IVF flat float index for use with CLIP embeddings.
+    
+    This index uses inverted file search for faster approximate search while maintaining
+    good accuracy. Supports cosine similarity.
     """
-
-    def __init__(self, nhash: int = 16):
-        bits_per_hashmap = BITS_IN_CLIP // nhash
-        faiss_index = faiss.IndexBinaryIDMap2(
-            faiss.IndexBinaryMultiHash(BITS_IN_CLIP, nhash, bits_per_hashmap)
+    
+    def __init__(self, dimension: int = 512, nlist: int = 100):
+        # Create an IVF flat index with cosine similarity
+        quantizer = faiss.IndexFlatIP(dimension)
+        faiss_index = faiss.IndexIDMap2(
+            faiss.IndexIVFFlat(quantizer, dimension, nlist, faiss.METRIC_INNER_PRODUCT)
         )
         super().__init__(faiss_index)
-        self.__construct_index_rev_map()
+        self.dimension = dimension
+        self.nlist = nlist
 
-    def add(
-        self,
-        hashes: t.Iterable[CLIP_HASH_TYPE],
-        custom_ids: t.Iterable[int],
-    ):
+    def add(self, embeddings: t.Iterable[numpy.ndarray], custom_ids: t.Iterable[int]):
         """
         Parameters
         ----------
-        hashes: sequence of CLIP Hashes
-            The CLIP hashes to create the index with
-        custom_ids: sequence of custom ids for the CLIP Hashes
-            Sequence of custom id values to use for the CLIP hashes for any
-            method relating to indexes (e.g., hash_at). If provided, the nth item in
-            custom_ids will be used as the id for the nth hash in hashes. If not provided
-            then the ids for the hashes will be assumed to be their respective index
-            in hashes (i.e., the nth hash would have id n, starting from 0).
-
-        Returns
-        -------
-        a CLIPMultiHashIndex of these hashes
+        embeddings: sequence of CLIP embeddings
+            The CLIP embeddings to add to the index. Should be normalized for cosine similarity.
+        custom_ids: sequence of custom ids for the embeddings
+            Sequence of custom id values to use for the embeddings.
         """
-        hash_bytes = [binascii.unhexlify(hash) for hash in hashes]
-        vectors = list(
-            map(lambda h: numpy.frombuffer(h, dtype=numpy.uint8), hash_bytes)
-        )
+        embedding_vectors = [numpy.array(emb, dtype=numpy.float32) for emb in embeddings]
+        vectors = numpy.array(embedding_vectors)
         i64_ids = list(map(uint64_to_int64, custom_ids))
-        self.faiss_index.add_with_ids(numpy.array(vectors), numpy.array(i64_ids))
-        self.__construct_index_rev_map()
+        self.faiss_index.add_with_ids(vectors, numpy.array(i64_ids))
 
-    @property
-    def mih_index(self):
-        """
-        Convenience accessor for the underlaying faiss.IndexBinaryMultiHash index regardless of if it is wrapped in an ID
-        map or not.
-        """
-        if hasattr(self.faiss_index, "index"):
-            return faiss.downcast_IndexBinary(self.faiss_index.index)
-        return self.faiss_index
-
-    def search(
-        self,
-        queries: t.Sequence[CLIP_HASH_TYPE],
-        threshhold: int,
-        return_as_ids: bool = False,
-    ):
-        self.mih_index.nflip = int(threshhold) // int(self.mih_index.nhash)
-        return super().search(queries, threshhold, return_as_ids)
+    def embedding_at(self, idx: int) -> numpy.ndarray:
+        i64_id = uint64_to_int64(idx)
+        vector = self.faiss_index.reconstruct(i64_id)
+        return vector
 
     def search_with_distance_in_result(
         self,
-        queries: t.Sequence[str],
-        threshhold: int,
-    ):
-        self.mih_index.nflip = int(threshhold) // int(self.mih_index.nhash)
-        return super().search_with_distance_in_result(queries, threshhold)
+        queries: t.Sequence[numpy.ndarray],
+        threshold: float,
+    ) -> t.Dict[int, t.List[t.Tuple[int, numpy.ndarray, numpy.float32]]]:
+        """
+        Override to set nprobe for IVF search.
+        """
+        # Set nprobe for IVF search (higher values = more accurate but slower)
+        self.faiss_index.nprobe = min(self.nlist, max(1, self.nlist // 10))
+        return super().search_with_distance_in_result(queries, threshold)
 
     def search_topk(
         self,
-        queries: t.Sequence[str],
+        queries: t.Sequence[numpy.ndarray],
         k: int,
-    ):
-        # Keep MIH candidate expansion modest for performance.
-        # Use a small default flip budget and increase only if needed.
-        bits_per_hashmap = BITS_IN_CLIP // int(self.mih_index.nhash)
-
-        # Start with a conservative nflip to keep search fast.
-        # Empirically, values in [2, 8] work well for CLIP MIH.
-        nflip = min(4, bits_per_hashmap)
-        self.mih_index.nflip = nflip
-
-        # Perform initial search
-        result = super().search_topk(queries, k)
-
-        # If any query returns fewer than k valid results and we haven't reached the cap,
-        # try once more with a slightly higher nflip to improve recall.
-        needs_more = any(len(v) < k for v in result.values())
-        if needs_more and nflip < bits_per_hashmap:
-            self.mih_index.nflip = min(bits_per_hashmap, max(nflip + 2, nflip * 2))
-            result = super().search_topk(queries, k)
-
-        return result
-
-
-
-    def hash_at(self, idx: int) -> str:
-        i64_id = uint64_to_int64(idx)
-        if self.index_rev_map:
-            index_id = self.index_rev_map[i64_id]
-        else:
-            index_id = i64_id
-        vector = self.mih_index.storage.reconstruct(index_id)
-        return binascii.hexlify(vector.tobytes()).decode()
-
-    def __construct_index_rev_map(self):
+    ) -> t.Dict[int, t.List[t.Tuple[int, numpy.ndarray, numpy.float32]]]:
         """
-        Workaround method for creating an in-memory lookup mapping custom ids to internal index id representations. The
-        rev_map property provided in faiss.IndexBinaryIDMap2 has no accessible `at` or other index lookup methods in swig
-        and the implementation of `reconstruct` in faiss.IndexBinaryIDMap2 requires the underlaying index to directly
-        support `reconstruct`, which faiss.IndexBinaryMultiHash does not. Thus this workaround is needed until either the
-        values in the faiss.IndexBinaryIDMap2 rev_map can be accessed directly or faiss.IndexBinaryMultiHash is directly
-        supports `reconstruct` calls.
+        Override to set nprobe for IVF search.
         """
-        if hasattr(self.faiss_index, "id_map"):
-            id_map = self.faiss_index.id_map
-            self.index_rev_map = {id_map.at(i): i for i in range(id_map.size())}
-        else:
-            self.index_rev_map = None
-
-    def __setstate__(self, data):
-        super().__setstate__(data)
-        self.__construct_index_rev_map()
+        # Set nprobe for IVF search (higher values = more accurate but slower)
+        self.faiss_index.nprobe = min(self.nlist, max(1, self.nlist // 10))
+        return super().search_topk(queries, k)

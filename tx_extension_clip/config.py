@@ -15,6 +15,11 @@ CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD: float = 0.2  # 1 - 0.8 = 0.2 for 80% simila
 # Legacy threshold for backward compatibility (updated for cosine distance)
 CLIP_DISTANCE_THRESHOLD: float = 0.1  # Updated for cosine distance (90% similarity)
 
+# IVFPQ-specific configuration parameters
+CLIP_IVFPQ_NLIST: int = 100  # Default clusters (auto-configured based on dataset size)
+CLIP_IVFPQ_M: int = 16  # Number of PQ sub-vectors (must divide 512 evenly)
+CLIP_IVFPQ_NBITS: int = 8  # Bits per sub-vector
+
 CLIP_HASHER: CLIPHasher = CLIPHasher(
     model_name=OPEN_CLIP_MODEL_NAME,
     pretrained=OPEN_CLIP_PRETRAINED,

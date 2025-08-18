@@ -21,6 +21,7 @@ from tx_extension_clip.config import (
     CLIP_CONFIDENT_MATCH_THRESHOLD,
     CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD,
 )
+from tx_extension_clip.signal import CLIPSignal
 
 CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithSingleDistance[float], IndexT]
 
@@ -42,7 +43,7 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
     def _get_empty_index(cls):
         return CLIPIVFPQFloatIndex()
 
-    def __init__(self, entries: t.Iterable[t.Tuple[numpy.ndarray, IndexT]] = ()) -> None:
+    def __init__(self, entries: t.Iterable[t.Tuple[str, IndexT]] = ()) -> None:
         super().__init__()
         self.local_id_to_entry: t.List[t.Tuple[numpy.ndarray, IndexT]] = []
         self.index = self._get_empty_index()
@@ -51,11 +52,19 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
     def __len__(self) -> int:
         return len(self.local_id_to_entry)
 
-    def query(self, embedding: numpy.ndarray) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+    def query(self, signal_str: str) -> t.Sequence[CLIPIndexMatch[IndexT]]:
         """
-        Look up entries against the index, up to the max supported distance.
+        Look up entries against the index using a signal string.
+        This is what HMA calls for normal queries.
         """
+        # Convert signal string to embedding
+        embedding = CLIPSignal.deserialize_embedding(signal_str)
+        return self.query_embedding(embedding)
 
+    def query_embedding(self, embedding: numpy.ndarray) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Look up entries against the index using an embedding directly.
+        """
         results = self.index.search_with_distance_in_result(
             [embedding], self.get_match_threshold()
         )
@@ -70,10 +79,73 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
             )
         return matches
 
-    def add(self, embedding: numpy.ndarray, entry: IndexT) -> None:
-        self.add_all(((embedding, entry),))
+    def query_topk(self, signal_str: str, k: int) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Look up top k entries against the index using a signal string.
+        This is what HMA calls for topk queries.
+        """
+        # Convert signal string to embedding
+        embedding = CLIPSignal.deserialize_embedding(signal_str)
+        
+        results = self.index.search_topk([embedding], k)
 
-    def add_all(self, entries: t.Iterable[t.Tuple[numpy.ndarray, IndexT]]) -> None:
+        matches = []
+        for id, _, distance in results[0]:
+            matches.append(
+                IndexMatchUntyped(
+                    SignalSimilarityInfoWithSingleDistance[float](float(distance)),
+                    self.local_id_to_entry[id][1],
+                )
+            )
+        return matches
+
+    def query_threshold(self, signal_str: str, threshold: float) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Look up entries against the index with a specific threshold using a signal string.
+        This is what HMA calls for threshold queries.
+        """
+        # Convert signal string to embedding
+        embedding = CLIPSignal.deserialize_embedding(signal_str)
+        
+        results = self.index.search_with_distance_in_result([embedding], threshold)
+
+        matches = []
+        for id, _, distance in results[0]:
+            matches.append(
+                IndexMatchUntyped(
+                    SignalSimilarityInfoWithSingleDistance[float](float(distance)),
+                    self.local_id_to_entry[id][1],
+                )
+            )
+        return matches
+
+    def add(self, signal_str: str, entry: IndexT) -> None:
+        """
+        Add an entry to the index using a signal string.
+        This is what HMA calls.
+        """
+        embedding = CLIPSignal.deserialize_embedding(signal_str)
+        self._add_embeddings([(embedding, entry)])
+
+    def add_all(self, entries: t.Iterable[t.Tuple[str, IndexT]]) -> None:
+        """
+        Add multiple entries to the index using signal strings.
+        This is what HMA calls.
+        """
+        # Convert signal strings to embeddings
+        embedding_entries = []
+        for signal_str, metadata in entries:
+            embedding = CLIPSignal.deserialize_embedding(signal_str)
+            embedding_entries.append((embedding, metadata))
+        
+        self._add_embeddings(embedding_entries)
+
+    def add_embedding(self, embedding: numpy.ndarray, entry: IndexT) -> None:
+        """Add an entry using an embedding directly."""
+        self._add_embeddings([(embedding, entry)])
+
+    def _add_embeddings(self, entries: t.Iterable[t.Tuple[numpy.ndarray, IndexT]]) -> None:
+        """Add multiple entries using embeddings directly."""
         start = len(self.local_id_to_entry)
         self.local_id_to_entry.extend(entries)
         if start != len(self.local_id_to_entry):

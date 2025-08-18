@@ -2,8 +2,11 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["tx_extension_clip"]
+# This [project] table is required by setuptools when [tool.setuptools] is used.
+[project]
+name = "tx-extension-clip"
+version = "0.2.5"
 
 [tool.setuptools.env]
+# This sets the PYTHONPATH to fix the "module not found" error in Docker
 "PYTHONPATH" = "{project_root}"

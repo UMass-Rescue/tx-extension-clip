@@ -22,13 +22,13 @@ setup(
     ],
     install_requires=[
         "faiss-cpu>=1.7.3",  # faiss
-        "numpy>=1.24.2",  # faiss
+        "numpy==1.26.4",  # faiss
         "open-clip-torch>=2.32.0", # using currently available latest version with the open clip patch in hasher.py
         "Pillow>=9.4.0",
         "scipy>=1.11.3",
         "threatexchange>=1.0.13",
-        "torch>=2.0.1",
-        "torchvision>=0.15.2",
+        "torch==2.6.0",
+        "torchvision==0.21.0",
         "transformers>=4.34.0",
     ],
     packages=find_packages(exclude=["tests*"]),

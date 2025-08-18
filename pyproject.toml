@@ -1,3 +1,9 @@
 [build-system]
-requires = ['setuptools>=42']
-build-backend = 'setuptools.build_meta'
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["tx_extension_clip"]
+
+[tool.setuptools.env]
+"PYTHONPATH" = "{project_root}"

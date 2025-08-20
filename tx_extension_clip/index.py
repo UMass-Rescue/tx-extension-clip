@@ -6,7 +6,7 @@ import typing as t
 
 from threatexchange.signal_type.index import (
     IndexMatchUntyped,
-    SignalSimilarityInfoWithIntDistance,
+    SignalSimilarityInfoWithSingleDistance,
     SignalTypeIndex,
 )
 from threatexchange.signal_type.index import T as IndexT
@@ -19,6 +19,34 @@ from tx_extension_clip.matcher import (
 
 CLIP_CONFIDENT_MATCH_THRESHOLD = 0.01
 CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD = 0.02
+
+def _hamming_to_cosine_distance(hamming_distance: float) -> float:
+    """
+    Convert hamming distance to approximate cosine distance for display.
+    
+    Uses the inverse of the relationship in _cosine_to_hamming_threshold:
+    hamming = 512 * arccos(cosine_similarity) / π
+    Therefore: cosine_distance = 1 - cos(hamming * π / 512)
+    
+    Args:
+        hamming_distance: Hamming distance from FAISS (0-512)
+        
+    Returns:
+        Approximate cosine distance (0.0-2.0)
+    """
+    import math
+    
+    # Clamp hamming distance to valid range
+    hamming_distance = max(0, min(hamming_distance, 512))
+    
+    # Apply inverse transformation
+    angle = hamming_distance * math.pi / 512
+    cosine_similarity = math.cos(angle)
+    cosine_distance = 1.0 - cosine_similarity
+    
+    # Clamp to valid cosine distance range
+    return max(0.0, min(2.0, cosine_distance))
+
 
 def _cosine_to_hamming_threshold(cosine_threshold: float) -> int:
     """
@@ -57,7 +85,7 @@ def _cosine_to_hamming_threshold(cosine_threshold: float) -> int:
     # Clamp to reasonable bounds
     return max(1, min(hamming_threshold, 512))
 
-CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithIntDistance, IndexT]
+CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithSingleDistance[float], IndexT]
 
 
 class CLIPIndex(SignalTypeIndex[IndexT]):
@@ -100,9 +128,11 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
 
         matches = []
         for id, _, distance in results[hash]:
+            # Convert hamming distance to cosine distance for meaningful display
+            cosine_dist = _hamming_to_cosine_distance(float(distance))
             matches.append(
                 IndexMatchUntyped(
-                    SignalSimilarityInfoWithIntDistance(int(distance)),
+                    SignalSimilarityInfoWithSingleDistance[float](cosine_dist),
                     self.local_id_to_entry[id][1],
                 )
             )
@@ -126,9 +156,11 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         
         matches = []
         for id, _, distance in results[hash]:
+            # Convert hamming distance to cosine distance for meaningful display
+            cosine_dist = _hamming_to_cosine_distance(float(distance))
             matches.append(
                 IndexMatchUntyped(
-                    SignalSimilarityInfoWithIntDistance(int(distance)),
+                    SignalSimilarityInfoWithSingleDistance[float](cosine_dist),
                     self.local_id_to_entry[id][1],
                 )
             )
@@ -162,9 +194,11 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
             
             # Skip invalid indices (FAISS returns -1 for missing results)
             if idx >= 0 and idx < len(self.local_id_to_entry):
+                # Convert hamming distance to cosine distance for meaningful display
+                cosine_dist = _hamming_to_cosine_distance(float(distance))
                 matches.append(
                     IndexMatchUntyped(
-                        SignalSimilarityInfoWithIntDistance(int(distance)),
+                        SignalSimilarityInfoWithSingleDistance[float](cosine_dist),
                         self.local_id_to_entry[idx][1],
                     )
                 )

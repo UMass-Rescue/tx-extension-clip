@@ -127,21 +127,21 @@ class CLIPOutput:
             normalized=self.normalized,
         )
 
-    def serialize(self) -> bytes:
+    def serialize(self) -> str:
         """Serializes the CLIP hash to a string.
 
         Returns:
-            bytes: The serialized CLIP hash.
+            str: The serialized CLIP hash.
         """
-        if self.binary_hash is not None:
+        if self.hash_vector is not None:
+            # Fallback to float vector serialization
+            return str(binascii.hexlify(self.hash_vector.tobytes()), "ascii")
+        elif self.binary_hash is not None:
             # Serialize binary hash (preferred for indexing)
             # Pack bits for FAISS binary index compatibility
             binary_2d = self.binary_hash.reshape(1, -1)  # Shape: (1, nbits)
             packed_binary = pack_bits(binary_2d)[0]  # Shape: (nbits//8,)
             return str(binascii.hexlify(packed_binary.tobytes()), "ascii")
-        elif self.hash_vector is not None:
-            # Fallback to float vector serialization
-            return str(binascii.hexlify(self.hash_vector.tobytes()), "ascii")
         else:
             raise ValueError("Both hash_vector and binary_hash are None")
 

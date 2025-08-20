@@ -129,21 +129,18 @@ class CLIPOutput:
 
     def serialize(self) -> str:
         """Serializes the CLIP hash to a string.
+        
+        Always returns float32 format (4096 hex chars) for external consistency.
+        Binary conversion happens transparently at the indexing layer.
 
         Returns:
-            str: The serialized CLIP hash.
+            str: The serialized CLIP hash in float32 format.
         """
         if self.hash_vector is not None:
-            # Fallback to float vector serialization
+            # Always use float32 format for external interfaces
             return str(binascii.hexlify(self.hash_vector.tobytes()), "ascii")
-        elif self.binary_hash is not None:
-            # Serialize binary hash (preferred for indexing)
-            # Pack bits for FAISS binary index compatibility
-            binary_2d = self.binary_hash.reshape(1, -1)  # Shape: (1, nbits)
-            packed_binary = pack_bits(binary_2d)[0]  # Shape: (nbits//8,)
-            return str(binascii.hexlify(packed_binary.tobytes()), "ascii")
         else:
-            raise ValueError("Both hash_vector and binary_hash are None")
+            raise ValueError("hash_vector is None - cannot serialize without float32 representation")
 
 
 class CLIPHasher:

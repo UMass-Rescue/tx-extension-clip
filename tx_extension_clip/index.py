@@ -20,6 +20,43 @@ from tx_extension_clip.matcher import (
 CLIP_CONFIDENT_MATCH_THRESHOLD = 0.01
 CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD = 0.02
 
+def _cosine_to_hamming_threshold(cosine_threshold: float) -> int:
+    """
+    Convert cosine distance threshold to hamming distance threshold for binary quantized CLIP embeddings.
+    
+    With proper binary quantization, there's a theoretical relationship between cosine similarity
+    and hamming distance for normalized vectors:
+    
+    For sign-based quantization:
+    P(bit_i_differs) = arccos(cosine_similarity) / π
+    Expected hamming distance = dimensions * arccos(cosine_similarity) / π
+    
+    Args:
+        cosine_threshold: Cosine distance threshold (0.0-1.0)
+        
+    Returns:
+        Hamming distance threshold (integer)
+    """
+    import math
+    
+    # Convert cosine distance to cosine similarity
+    cosine_similarity = 1.0 - cosine_threshold
+    
+    # Clamp to valid range [-1, 1]
+    cosine_similarity = max(-1.0, min(1.0, cosine_similarity))
+    
+    # Theoretical relationship for sign-based binary quantization
+    # Expected hamming distance = d * arccos(cosine_similarity) / π
+    # where d is the dimension (512 for CLIP)
+    expected_hamming = 512 * math.acos(cosine_similarity) / math.pi
+    
+    # Add some tolerance (±20%) to account for variance
+    tolerance_factor = 1.2
+    hamming_threshold = int(expected_hamming * tolerance_factor)
+    
+    # Clamp to reasonable bounds
+    return max(1, min(hamming_threshold, 512))
+
 CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithIntDistance, IndexT]
 
 
@@ -55,8 +92,10 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         """
 
         # query takes a signal hash but index supports batch queries hence [hash]
+        # Convert cosine threshold to hamming threshold for FAISS binary index
+        hamming_threshold = _cosine_to_hamming_threshold(self.get_match_threshold())
         results = self.index.search_with_distance_in_result(
-            [hash], self.get_match_threshold()
+            [hash], hamming_threshold
         )
 
         matches = []
@@ -67,6 +106,69 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
                     self.local_id_to_entry[id][1],
                 )
             )
+        return matches
+
+    def query_threshold(self, hash: str, threshold: float) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Query for all matches below the specified distance threshold.
+        
+        Args:
+            hash: The signal hash to query
+            threshold: Maximum cosine distance threshold for matches (converted to hamming distance)
+            
+        Returns:
+            All matches with hamming distance <= converted threshold
+        """
+        # Convert cosine distance threshold to hamming distance threshold
+        # Note: FAISS binary index uses hamming distance (integer), not cosine distance
+        hamming_threshold = _cosine_to_hamming_threshold(threshold)
+        results = self.index.search_with_distance_in_result([hash], hamming_threshold)
+        
+        matches = []
+        for id, _, distance in results[hash]:
+            matches.append(
+                IndexMatchUntyped(
+                    SignalSimilarityInfoWithIntDistance(int(distance)),
+                    self.local_id_to_entry[id][1],
+                )
+            )
+        return matches
+
+    def query_topk(self, hash: str, k: int) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Query for the top k closest matches.
+        
+        Args:
+            hash: The signal hash to query
+            k: Number of top matches to return
+            
+        Returns:
+            Top k matches ordered by distance (closest first)
+        """
+        # Convert hash to query vector - consistent with matcher.py pattern
+        import binascii
+        import numpy
+        
+        query_vector = numpy.frombuffer(binascii.unhexlify(hash), dtype=numpy.uint8)
+        qs = numpy.array([query_vector])
+        
+        # Use FAISS search to get top k matches
+        distances, indices = self.index.faiss_index.search(qs, k)
+        
+        matches = []
+        for i in range(len(indices[0])):
+            idx = indices[0][i]
+            distance = distances[0][i]
+            
+            # Skip invalid indices (FAISS returns -1 for missing results)
+            if idx >= 0 and idx < len(self.local_id_to_entry):
+                matches.append(
+                    IndexMatchUntyped(
+                        SignalSimilarityInfoWithIntDistance(int(distance)),
+                        self.local_id_to_entry[idx][1],
+                    )
+                )
+        
         return matches
 
     def add(self, signal_str: str, entry: IndexT) -> None:

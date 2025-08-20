@@ -7,7 +7,7 @@ CLIP_DISTANCE_THRESHOLD: float = 0.1
 CLIP_NORMALIZED: bool = True
 OPEN_CLIP_MODEL_NAME: str = "xlm-roberta-base-ViT-B-32"
 OPEN_CLIP_PRETRAINED: str = "laion5b_s13b_b90k"
-BITS_IN_CLIP: int = 32 * 512
+BITS_IN_CLIP: int = 512  # Number of bits after LSH binary quantization (512 bits = 64 bytes)
 
 CLIP_HASHER: CLIPHasher = CLIPHasher(
     model_name=OPEN_CLIP_MODEL_NAME,

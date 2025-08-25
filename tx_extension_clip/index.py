@@ -181,38 +181,14 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         Returns:
             Top k matches ordered by distance (closest first)
         """
-        # Convert hash to query vector - consistent with matcher.py pattern
-        # Convert from float32 hex string to binary format (same as in add method)
-        if len(hash) != 4096:
-            raise ValueError(f"Invalid hash length: {len(hash)}. Expected 4096 characters (float32 format)")
-        
-        hash_bytes = binascii.unhexlify(hash)
-        float_vector = numpy.frombuffer(hash_bytes, dtype=numpy.float32)
-        binary_vector = binary_quantize_embedding(float_vector, nbits=512)
-        # Pack bits for FAISS binary index
-        binary_2d = binary_vector.reshape(1, -1)
-        packed_binary = pack_bits(binary_2d)
-        
-        # Use FAISS search to get top k matches
+        # All external hashes are in float32 format (4096 hex chars)
+        packed_binary = CLIPHashIndex._hashes_to_binary_vectors([hash])
+
         distances, indices = self.index.faiss_index.search(packed_binary, k)
-        
-        matches = []
-        for i in range(len(indices[0])):
-            idx = indices[0][i]
-            distance = distances[0][i]
-            
-            # Skip invalid indices (FAISS returns -1 for missing results)
-            if idx >= 0 and idx < len(self.local_id_to_entry):
-                # Convert hamming distance to cosine distance for meaningful display
-                cosine_dist = _hamming_to_cosine_distance(float(distance))
-                matches.append(
-                    IndexMatchUntyped(
-                        SignalSimilarityInfoWithSingleDistance[float](cosine_dist),
-                        self.local_id_to_entry[idx][1],
-                    )
-                )
-        
-        return matches
+        results = []
+        for d, i in zip(distances[0], indices[0]):
+            results.append((i, d))
+        return results
 
     def add(self, signal_str: str, entry: IndexT) -> None:
         self.add_all(((signal_str, entry),))

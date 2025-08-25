@@ -12,6 +12,34 @@ CLIP_HASH_TYPE = t.Union[str, bytes]
 
 
 class CLIPHashIndex(ABC):
+    @staticmethod
+    def _hashes_to_binary_vectors(hashes: t.Iterable[CLIP_HASH_TYPE]) -> numpy.ndarray:
+        """
+        Converts float32 hex string hashes to binary vectors for FAISS.
+        """
+        from tx_extension_clip.hasher import binary_quantize_embedding, pack_bits
+
+        binary_vectors = []
+        for hash_str in hashes:
+            # All external hashes are in float32 format (4096 hex chars)
+            # It can be bytes or string
+            if isinstance(hash_str, bytes):
+                hash_str = hash_str.decode()
+
+            if len(hash_str) != 4096:
+                raise ValueError(
+                    f"Invalid hash length: {len(hash_str)}. Expected 4096 characters (float32 format)"
+                )
+
+            hash_bytes = binascii.unhexlify(hash_str)
+            float_vector = numpy.frombuffer(hash_bytes, dtype=numpy.float32)
+            binary_vector = binary_quantize_embedding(float_vector, nbits=512)
+            # Pack bits for FAISS binary index
+            binary_2d = binary_vector.reshape(1, -1)
+            packed_binary = pack_bits(binary_2d)[0]
+            binary_vectors.append(packed_binary)
+        return numpy.array(binary_vectors)
+
     @abstractmethod
     def __init__(self, faiss_index: faiss.IndexBinary) -> None:
         self.faiss_index = faiss_index
@@ -25,12 +53,10 @@ class CLIPHashIndex(ABC):
         """
         pass
 
-    @abstractmethod
-    def add(self, hashes: t.Iterable[CLIP_HASH_TYPE], custom_ids: t.Iterable[int]):
-        """
-        Adds hashes and their custom ids to the CLIP index.
-        """
-        pass
+    def _add_hashes(self, hashes: t.Iterable[CLIP_HASH_TYPE], custom_ids: t.Iterable[int]):
+        binary_vectors = CLIPHashIndex._hashes_to_binary_vectors(hashes)
+        i64_ids = list(map(uint64_to_int64, custom_ids))
+        self.faiss_index.add_with_ids(binary_vectors, numpy.array(i64_ids))
 
     def search(
         self,
@@ -66,22 +92,7 @@ class CLIPHashIndex(ABC):
             "0000000000000000000000000000000000000000000000000000000000000000" for a threshold of 16. Thus it would appear in
             the entry for both the hashes if they were both in the queries list.
         """
-        # Convert queries from standard float32 format to binary for FAISS search
-        from tx_extension_clip.hasher import binary_quantize_embedding, pack_bits
-        query_vectors = []
-        for q in queries:
-            # All external queries are in float32 format (4096 hex chars)
-            if len(q) != 4096:
-                raise ValueError(f"Invalid query length: {len(q)}. Expected 4096 characters (float32 format)")
-            
-            hash_bytes = binascii.unhexlify(q)
-            float_vector = numpy.frombuffer(hash_bytes, dtype=numpy.float32)
-            binary_vector = binary_quantize_embedding(float_vector, nbits=512)
-            binary_2d = binary_vector.reshape(1, -1)
-            packed_binary = pack_bits(binary_2d)[0]
-            query_vectors.append(packed_binary)
-        
-        qs = numpy.array(query_vectors)
+        qs = CLIPHashIndex._hashes_to_binary_vectors(queries)
         limits, _, I = self.faiss_index.range_search(qs, threshhold + 1)
 
         if return_as_ids:
@@ -94,7 +105,7 @@ class CLIPHashIndex(ABC):
 
         return [
             [output_fn(idx.item()) for idx in I[limits[i] : limits[i + 1]]]
-            for i in range(len(query_vectors))
+            for i in range(len(queries))
         ]
 
     def search_with_distance_in_result(
@@ -116,22 +127,7 @@ class CLIPHashIndex(ABC):
         }
         """
 
-        # Convert queries from standard float32 format to binary for FAISS search
-        from tx_extension_clip.hasher import binary_quantize_embedding, pack_bits
-        query_vectors = []
-        for q in queries:
-            # All external queries are in float32 format (4096 hex chars)
-            if len(q) != 4096:
-                raise ValueError(f"Invalid query length: {len(q)}. Expected 4096 characters (float32 format)")
-            
-            hash_bytes = binascii.unhexlify(q)
-            float_vector = numpy.frombuffer(hash_bytes, dtype=numpy.float32)
-            binary_vector = binary_quantize_embedding(float_vector, nbits=512)
-            binary_2d = binary_vector.reshape(1, -1)
-            packed_binary = pack_bits(binary_2d)[0]
-            query_vectors.append(packed_binary)
-        
-        qs = numpy.array(query_vectors)
+        qs = CLIPHashIndex._hashes_to_binary_vectors(queries)
         limits, similarities, I = self.faiss_index.range_search(qs, threshhold + 1)
 
         # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
@@ -186,25 +182,7 @@ class CLIPFlatHashIndex(CLIPHashIndex):
             then the ids for the hashes will be assumed to be their respective index
             in hashes (i.e., the nth hash would have id n, starting from 0).
         """
-        from tx_extension_clip.hasher import binary_quantize_embedding, pack_bits
-        
-        binary_vectors = []
-        for hash_str in hashes:
-            # All external hashes are in float32 format (4096 hex chars)
-            # Convert transparently to binary for internal FAISS indexing
-            if len(hash_str) != 4096:
-                raise ValueError(f"Invalid hash length: {len(hash_str)}. Expected 4096 characters (float32 format)")
-            
-            hash_bytes = binascii.unhexlify(hash_str)
-            float_vector = numpy.frombuffer(hash_bytes, dtype=numpy.float32)
-            binary_vector = binary_quantize_embedding(float_vector, nbits=512)
-            # Pack bits for FAISS binary index
-            binary_2d = binary_vector.reshape(1, -1)
-            packed_binary = pack_bits(binary_2d)[0]
-            binary_vectors.append(packed_binary)
-        
-        i64_ids = list(map(uint64_to_int64, custom_ids))
-        self.faiss_index.add_with_ids(numpy.array(binary_vectors), numpy.array(i64_ids))
+        self._add_hashes(hashes, custom_ids)
 
     def hash_at(self, idx: int) -> str:
         i64_id = uint64_to_int64(idx)
@@ -255,25 +233,7 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         -------
         a CLIPMultiHashIndex of these hashes
         """
-        from tx_extension_clip.hasher import binary_quantize_embedding, pack_bits
-        
-        binary_vectors = []
-        for hash_str in hashes:
-            # All external hashes are in float32 format (4096 hex chars)
-            # Convert transparently to binary for internal FAISS indexing
-            if len(hash_str) != 4096:
-                raise ValueError(f"Invalid hash length: {len(hash_str)}. Expected 4096 characters (float32 format)")
-            
-            hash_bytes = binascii.unhexlify(hash_str)
-            float_vector = numpy.frombuffer(hash_bytes, dtype=numpy.float32)
-            binary_vector = binary_quantize_embedding(float_vector, nbits=512)
-            # Pack bits for FAISS binary index
-            binary_2d = binary_vector.reshape(1, -1)
-            packed_binary = pack_bits(binary_2d)[0]
-            binary_vectors.append(packed_binary)
-        
-        i64_ids = list(map(uint64_to_int64, custom_ids))
-        self.faiss_index.add_with_ids(numpy.array(binary_vectors), numpy.array(i64_ids))
+        self._add_hashes(hashes, custom_ids)
         self.__construct_index_rev_map()
 
     @property

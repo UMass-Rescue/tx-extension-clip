@@ -2,7 +2,10 @@
 Implementation of SignalTypeIndex abstraction for CLIP by wrapping `matcher`
 """
 
+import binascii
 import typing as t
+
+import numpy
 
 from threatexchange.signal_type.index import (
     IndexMatchUntyped,
@@ -11,6 +14,7 @@ from threatexchange.signal_type.index import (
 )
 from threatexchange.signal_type.index import T as IndexT
 
+from tx_extension_clip.hasher import binary_quantize_embedding, pack_bits
 from tx_extension_clip.matcher import (
     CLIPFlatHashIndex,
     CLIPHashIndex,
@@ -178,14 +182,19 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
             Top k matches ordered by distance (closest first)
         """
         # Convert hash to query vector - consistent with matcher.py pattern
-        import binascii
-        import numpy
+        # Convert from float32 hex string to binary format (same as in add method)
+        if len(hash) != 4096:
+            raise ValueError(f"Invalid hash length: {len(hash)}. Expected 4096 characters (float32 format)")
         
-        query_vector = numpy.frombuffer(binascii.unhexlify(hash), dtype=numpy.uint8)
-        qs = numpy.array([query_vector])
+        hash_bytes = binascii.unhexlify(hash)
+        float_vector = numpy.frombuffer(hash_bytes, dtype=numpy.float32)
+        binary_vector = binary_quantize_embedding(float_vector, nbits=512)
+        # Pack bits for FAISS binary index
+        binary_2d = binary_vector.reshape(1, -1)
+        packed_binary = pack_bits(binary_2d)
         
         # Use FAISS search to get top k matches
-        distances, indices = self.index.faiss_index.search(qs, k)
+        distances, indices = self.index.faiss_index.search(packed_binary, k)
         
         matches = []
         for i in range(len(indices[0])):

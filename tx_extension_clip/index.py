@@ -11,15 +11,15 @@ from threatexchange.signal_type.index import (
 )
 from threatexchange.signal_type.index import T as IndexT
 
-from tx_extension_clip.config import BITS_IN_CLIP, CLIP_DISTANCE_THRESHOLD
+from tx_extension_clip.config import (
+    CLIP_FLAT_HASH_MATCH_THRESHOLD,
+    CLIP_MULTI_HASH_MATCH_THRESHOLD,
+)
 from tx_extension_clip.matcher import (
     CLIPFlatHashIndex,
     CLIPHashIndex,
     CLIPMultiHashIndex,
 )
-
-CLIP_CONFIDENT_MATCH_THRESHOLD = 164
-CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD = 328
 
 CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithIntDistance, IndexT]
 
@@ -35,7 +35,7 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         Distance should be 0.01
         Similarity should be 0.990020
         """
-        return CLIP_DISTANCE_THRESHOLD
+        return CLIP_MULTI_HASH_MATCH_THRESHOLD
 
     @classmethod
     def _get_empty_index(cls) -> CLIPHashIndex:
@@ -94,7 +94,7 @@ class CLIPFlatIndex(CLIPIndex):
 
     @classmethod
     def get_match_threshold(cls):
-        return CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD
+        return CLIP_FLAT_HASH_MATCH_THRESHOLD
 
     @classmethod
     def _get_empty_index(cls) -> CLIPHashIndex:

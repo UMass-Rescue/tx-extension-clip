@@ -3,7 +3,8 @@ from tx_extension_clip.hasher import CLIPHasher
 
 # Note that the embeddings must match the model used to generate the hashes.
 # This metadata must be included in the database.
-CLIP_DISTANCE_THRESHOLD: float = 0.1
+# Hamming distance threshold for binary CLIP hash comparison (number of differing bits)
+CLIP_DISTANCE_THRESHOLD: int = 2048  # Conservative threshold for signal comparison
 CLIP_NORMALIZED: bool = True
 OPEN_CLIP_MODEL_NAME: str = "xlm-roberta-base-ViT-B-32"
 OPEN_CLIP_PRETRAINED: str = "laion5b_s13b_b90k"

@@ -12,7 +12,7 @@ from threatexchange.signal_type import signal_base
 
 from tx_extension_clip.config import CLIP_DISTANCE_THRESHOLD, CLIP_HASHER
 from tx_extension_clip.index import CLIPIndex
-from tx_extension_clip.utils.distance import cosine_distance
+from tx_extension_clip.utils.distance import hamming_distance
 
 
 class CLIPSignal(
@@ -39,7 +39,7 @@ class CLIPSignal(
 
     @classmethod
     def get_index_cls(cls) -> t.Type[CLIPIndex]:
-        return TrivialCLIPIndex
+        return CLIPIndex
 
     @classmethod
     def validate_signal_str(cls, signal_str: str) -> str:
@@ -59,14 +59,14 @@ class CLIPSignal(
 
     @classmethod
     def compare_hash(
-        cls, hash1: str, hash2: str, threshold: float = CLIP_DISTANCE_THRESHOLD
+        cls, hash1: str, hash2: str, threshold: int = CLIP_DISTANCE_THRESHOLD
     ) -> signal_base.SignalComparisonResult:
         """
         Compare two CLIP hashes.
         """
-        vec1: np.ndarray = np.frombuffer(binascii.unhexlify(bytes(hash1, 'ascii')), dtype=np.float32)
-        vec2: np.ndarray = np.frombuffer(binascii.unhexlify(bytes(hash2, 'ascii')), dtype=np.float32)
-        distance: float = float(cosine_distance(vec1, vec2))
+        h1_bytes = binascii.unhexlify(hash1.encode("ascii"))
+        h2_bytes = binascii.unhexlify(hash2.encode("ascii"))
+        distance = hamming_distance(h1_bytes, h2_bytes)
         return signal_base.SignalComparisonResult.from_simple_dist(distance, threshold)
 
     @staticmethod

@@ -17,9 +17,15 @@ def cosine_distance(vector_a: np.ndarray, vector_b: np.ndarray) -> float:
 def hamming_distance(hash1: bytes, hash2: bytes) -> int:
     """
     Returns the hamming distance of two hashes.
+    Optimized version using bitwise XOR for better performance.
     """
-    h1 = np.unpackbits(np.frombuffer(hash1, dtype=np.uint8))
-    h2 = np.unpackbits(np.frombuffer(hash2, dtype=np.uint8))
-    # scipy's hamming distance returns a proportion, so we multiply by the
-    # total number of bits to get the absolute distance.
-    return int(spatial.distance.hamming(h1, h2) * h1.size)
+    # Convert bytes to numpy arrays for vectorized XOR
+    h1_array = np.frombuffer(hash1, dtype=np.uint8)
+    h2_array = np.frombuffer(hash2, dtype=np.uint8)
+    
+    # XOR the bytes and count set bits
+    xor_result = h1_array ^ h2_array
+    
+    # Count bits using numpy's built-in bit counting
+    # This is much faster than unpackbits + hamming distance
+    return int(np.sum(np.unpackbits(xor_result)))

@@ -4,7 +4,7 @@ from tx_extension_clip.hasher import CLIPHasher
 # Note that the embeddings must match the model used to generate the hashes.
 # This metadata must be included in the database.
 # Hamming distance threshold for binary CLIP hash comparison (number of differing bits)
-CLIP_MULTI_HASH_MATCH_THRESHOLD: int = 82  # Optimized for performance (0.5% of bits)
+CLIP_MULTI_HASH_MATCH_THRESHOLD: int = 7000  # Temporary high threshold for debugging (~43% of bits)
 CLIP_FLAT_HASH_MATCH_THRESHOLD: int = 328  # Can be higher for the exhaustive FlatHash index (2% of bits)
 CLIP_DISTANCE_THRESHOLD: int = (
     CLIP_MULTI_HASH_MATCH_THRESHOLD  # The default for one-to-one comparisons

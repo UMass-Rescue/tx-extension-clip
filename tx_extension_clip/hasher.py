@@ -45,7 +45,7 @@ class CLIPOutput:
             CLIPOutput: The deserialized CLIP hash.
         """
         bytes_: bytes = binascii.unhexlify(bytes(hex_, "ascii"))
-        hash_vector: np.ndarray = np.frombuffer(bytes_, dtype=np.float32)
+        hash_vector: np.ndarray = np.frombuffer(bytes_, dtype=np.uint8)
         return CLIPOutput(
             hash_vector=hash_vector,
             model_name=self.model_name,
@@ -79,6 +79,34 @@ class CLIPHasher:
 
         #this open clip torch issue has been fixed with this merge  https://github.com/mlfoundations/open_clip/pull/595
         #fix_open_clip()
+
+    def _quantize_to_binary(self, float32_embedding: np.ndarray) -> np.ndarray:
+        """
+        Convert float32 CLIP embedding to binary hash for FAISS binary indexing.
+        
+        Args:
+            float32_embedding: Float32 numpy array of CLIP features
+            
+        Returns:
+            Binary hash as uint8 numpy array suitable for FAISS binary index
+        """
+        # Simple threshold-based quantization: positive values -> 1, negative -> 0
+        binary_bits = (float32_embedding > 0).astype(np.bool_)
+        
+        # Pack bits into bytes (8 bits per byte) for efficient storage
+        # FAISS binary index expects uint8 bytes
+        num_bits = len(binary_bits)
+        num_bytes = (num_bits + 7) // 8  # Round up to nearest byte
+        
+        # Pad with zeros if needed to make it byte-aligned
+        if num_bits % 8 != 0:
+            padding = 8 - (num_bits % 8)
+            binary_bits = np.concatenate([binary_bits, np.zeros(padding, dtype=np.bool_)])
+        
+        # Pack bits into bytes
+        packed_bytes = np.packbits(binary_bits).astype(np.uint8)
+        
+        return packed_bytes
 
     @property
     def model(self) -> torch.nn.Module:
@@ -165,7 +193,7 @@ class CLIPHasher:
             image_features = torch.nn.functional.normalize(image_features, dim=1)
         return [
             CLIPOutput(
-                hash_vector=image_feature.numpy(),
+                hash_vector=self._quantize_to_binary(image_feature.numpy()),
                 model_name=self.model_name,
                 pretrained=self.pretrained,
                 normalized=self.normalized,

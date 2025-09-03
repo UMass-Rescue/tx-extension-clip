@@ -96,8 +96,9 @@ class CLIPHasher:
         print(f"[CLIP DEBUG] Float32 embedding: shape={float32_embedding.shape}, range=[{float32_embedding.min():.3f}, {float32_embedding.max():.3f}]")
         print(f"[CLIP DEBUG] First 10 values: {float32_embedding[:10]}")
         
-        # Simple threshold-based quantization: positive values -> 1, negative -> 0
-        binary_bits = (float32_embedding > 0).astype(np.bool_)
+        # Mean-centering quantization for better precision
+        mean = np.mean(float32_embedding)
+        binary_bits = (float32_embedding > mean).astype(np.bool_)
         
         # Pack bits into bytes (8 bits per byte) for efficient storage
         # FAISS binary index expects uint8 bytes

@@ -14,7 +14,6 @@ from tx_extension_clip.config import CLIP_DISTANCE_THRESHOLD, CLIP_HASHER
 from tx_extension_clip.index import CLIPIndex
 from tx_extension_clip.utils.distance import hamming_distance
 
-
 class CLIPSignal(
     signal_base.SignalType,
     signal_base.BytesHasher,
@@ -43,11 +42,12 @@ class CLIPSignal(
 
     @classmethod
     def validate_signal_str(cls, signal_str: str) -> str:
+        print(f"[CLIP DEBUG] Validating hash: {len(signal_str)} chars (expected: 4096)")
+        
         if len(signal_str) != 4096:
             raise ValueError(
                 f"CLIP hashes must be 4096 characters long. Got {len(signal_str)}"
             )
-
         return signal_str
 
     @classmethod
@@ -55,7 +55,10 @@ class CLIPSignal(
         """
         Generate a CLIP hash from a bytes object.
         """
-        return CLIP_HASHER.hash_from_bytes(bytes_).serialize()
+        clip_output = CLIP_HASHER.hash_from_bytes(bytes_)
+        hash_string = clip_output.serialize()
+        print(f"[CLIP DEBUG] Generated hash: {len(hash_string)} chars")
+        return hash_string
 
     @classmethod
     def compare_hash(

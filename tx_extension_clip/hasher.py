@@ -20,7 +20,6 @@ from open_clip.factory import (
 )
 from PIL import Image
 
-
 @dataclass
 class CLIPOutput:
     """
@@ -53,15 +52,19 @@ class CLIPOutput:
             normalized=self.normalized,
         )
 
-    def serialize(self) -> bytes:
+    def serialize(self) -> str:
         """Serializes the CLIP hash to a string.
 
         Returns:
-            bytes: The serialized CLIP hash.
+            str: The serialized CLIP hash.
         """
         if self.hash_vector is None:
             raise ValueError("Hash vector is None")
-        return str(binascii.hexlify(self.hash_vector.tobytes()), "ascii")
+        
+        hex_string = str(binascii.hexlify(self.hash_vector.tobytes()), "ascii")
+        print(f"[CLIP DEBUG] Serialized to {len(hex_string)} hex chars")
+        
+        return hex_string
 
 
 class CLIPHasher:
@@ -90,6 +93,9 @@ class CLIPHasher:
         Returns:
             Binary hash as uint8 numpy array suitable for FAISS binary index
         """
+        print(f"[CLIP DEBUG] Float32 embedding: shape={float32_embedding.shape}, range=[{float32_embedding.min():.3f}, {float32_embedding.max():.3f}]")
+        print(f"[CLIP DEBUG] First 10 values: {float32_embedding[:10]}")
+        
         # Simple threshold-based quantization: positive values -> 1, negative -> 0
         binary_bits = (float32_embedding > 0).astype(np.bool_)
         
@@ -105,6 +111,8 @@ class CLIPHasher:
         
         # Pack bits into bytes
         packed_bytes = np.packbits(binary_bits).astype(np.uint8)
+        
+        print(f"[CLIP DEBUG] Quantized {num_bits} bits → {len(packed_bytes) * 2} hex chars")
         
         return packed_bytes
 
@@ -187,10 +195,15 @@ class CLIPHasher:
         transformed_images: torch.Tensor = torch.stack(
             [self.transform(image) for image in images]
         )
+        
         with torch.no_grad():
             image_features: torch.Tensor = self.model.visual(transformed_images)
+        
+        print(f"[CLIP DEBUG] Features shape: {image_features.shape}, normalized: {self.normalized}")
+        
         if self.normalized:
             image_features = torch.nn.functional.normalize(image_features, dim=1)
+        
         return [
             CLIPOutput(
                 hash_vector=self._quantize_to_binary(image_feature.numpy()),

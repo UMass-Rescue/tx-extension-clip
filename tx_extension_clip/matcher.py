@@ -104,9 +104,12 @@ class CLIPHashIndex(ABC):
         }
         """
 
-        query_vectors = [
-            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
-        ]
+        query_vectors = []
+        try:
+            for q in queries:
+                query_vectors.append(numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8))
+        except (binascii.Error, ValueError) as e:
+            raise ValueError(f"Invalid hex string in queries: {e}")
         qs = numpy.array(query_vectors)
         limits, similarities, I = self.faiss_index.range_search(qs, threshhold + 1)
 

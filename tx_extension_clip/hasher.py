@@ -20,7 +20,6 @@ from open_clip.factory import (
 )
 from PIL import Image
 
-
 @dataclass
 class CLIPOutput:
     """
@@ -45,7 +44,7 @@ class CLIPOutput:
             CLIPOutput: The deserialized CLIP hash.
         """
         bytes_: bytes = binascii.unhexlify(bytes(hex_, "ascii"))
-        hash_vector: np.ndarray = np.frombuffer(bytes_, dtype=np.float32)
+        hash_vector: np.ndarray = np.frombuffer(bytes_, dtype=np.uint8)
         return CLIPOutput(
             hash_vector=hash_vector,
             model_name=self.model_name,
@@ -53,15 +52,19 @@ class CLIPOutput:
             normalized=self.normalized,
         )
 
-    def serialize(self) -> bytes:
+    def serialize(self) -> str:
         """Serializes the CLIP hash to a string.
 
         Returns:
-            bytes: The serialized CLIP hash.
+            str: The serialized CLIP hash.
         """
         if self.hash_vector is None:
             raise ValueError("Hash vector is None")
-        return str(binascii.hexlify(self.hash_vector.tobytes()), "ascii")
+        
+        hex_string = str(binascii.hexlify(self.hash_vector.tobytes()), "ascii")
+        print(f"[CLIP DEBUG] Serialized to {len(hex_string)} hex chars")
+        
+        return hex_string
 
 
 class CLIPHasher:
@@ -79,6 +82,40 @@ class CLIPHasher:
 
         #this open clip torch issue has been fixed with this merge  https://github.com/mlfoundations/open_clip/pull/595
         #fix_open_clip()
+
+    def _quantize_to_binary(self, float32_embedding: np.ndarray) -> np.ndarray:
+        """
+        Convert float32 CLIP embedding to binary hash for FAISS binary indexing.
+        
+        Args:
+            float32_embedding: Float32 numpy array of CLIP features
+            
+        Returns:
+            Binary hash as uint8 numpy array suitable for FAISS binary index
+        """
+        print(f"[CLIP DEBUG] Float32 embedding: shape={float32_embedding.shape}, range=[{float32_embedding.min():.3f}, {float32_embedding.max():.3f}]")
+        print(f"[CLIP DEBUG] First 10 values: {float32_embedding[:10]}")
+        
+        # Median-centering quantization for better precision and robustness to outliers
+        median = np.median(float32_embedding)
+        binary_bits = (float32_embedding > median).astype(np.bool_)
+        
+        # Pack bits into bytes (8 bits per byte) for efficient storage
+        # FAISS binary index expects uint8 bytes
+        num_bits = len(binary_bits)
+        num_bytes = (num_bits + 7) // 8  # Round up to nearest byte
+        
+        # Pad with zeros if needed to make it byte-aligned
+        if num_bits % 8 != 0:
+            padding = 8 - (num_bits % 8)
+            binary_bits = np.concatenate([binary_bits, np.zeros(padding, dtype=np.bool_)])
+        
+        # Pack bits into bytes
+        packed_bytes = np.packbits(binary_bits).astype(np.uint8)
+        
+        print(f"[CLIP DEBUG] Quantized {num_bits} bits → {len(packed_bytes) * 2} hex chars")
+        
+        return packed_bytes
 
     @property
     def model(self) -> torch.nn.Module:
@@ -159,13 +196,18 @@ class CLIPHasher:
         transformed_images: torch.Tensor = torch.stack(
             [self.transform(image) for image in images]
         )
+        
         with torch.no_grad():
             image_features: torch.Tensor = self.model.visual(transformed_images)
+        
+        print(f"[CLIP DEBUG] Features shape: {image_features.shape}, normalized: {self.normalized}")
+        
         if self.normalized:
             image_features = torch.nn.functional.normalize(image_features, dim=1)
+        
         return [
             CLIPOutput(
-                hash_vector=image_feature.numpy(),
+                hash_vector=self._quantize_to_binary(image_feature.numpy()),
                 model_name=self.model_name,
                 pretrained=self.pretrained,
                 normalized=self.normalized,

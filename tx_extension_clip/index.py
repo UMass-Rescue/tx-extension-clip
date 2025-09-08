@@ -54,20 +54,37 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         """
         Look up entries against the index, up to the max supported distance.
         """
+        return self.query_threshold(hash, self.get_match_threshold())
 
-        # query takes a signal hash but index supports batch queries hence [hash]
-        results = self.index.search_with_distance_in_result(
-            [hash], self.get_match_threshold()
-        )
+    def query_threshold(
+        self, hash: str, threshold: int
+    ) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Look up entries against the index, up to the given threshold.
+        """
+        results = self.index.search_with_distance_in_result([hash], threshold)
+        return self._process_query_results(results)
 
+    def query_top_k(self, hash: str, k: int) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Look up the top K closest entries against the index.
+        """
+        results = self.index.search_top_k([hash], k)
+        return self._process_query_results(results)
+
+    def _process_query_results(
+        self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
+    ) -> t.List[CLIPIndexMatch[IndexT]]:
         matches = []
-        for id, _, distance in results[hash]:
-            matches.append(
-                IndexMatchUntyped(
-                    SignalSimilarityInfoWithIntDistance(int(distance)),
-                    self.local_id_to_entry[id][1],
+        # We only query one hash at a time, so this is safe.
+        for result_list in results.values():
+            for id, _, distance in result_list:
+                matches.append(
+                    IndexMatchUntyped(
+                        SignalSimilarityInfoWithIntDistance(int(distance)),
+                        self.local_id_to_entry[id][1],
+                    )
                 )
-            )
         return matches
 
     def add(self, signal_str: str, entry: IndexT) -> None:

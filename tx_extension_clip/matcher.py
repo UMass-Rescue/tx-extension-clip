@@ -85,6 +85,34 @@ class CLIPHashIndex(ABC):
             for i in range(len(query_vectors))
         ]
 
+    def search_top_k(
+        self,
+        queries: t.Sequence[CLIP_HASH_TYPE],
+        k: int,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+        """
+        Search method that returns a mapping from query_str => (id, hash, distance) for the top k matches.
+        """
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
+        ]
+        qs = numpy.array(query_vectors)
+        distances, I = self.faiss_index.search(qs, k)
+
+        output_fn: t.Callable[[int], t.Any] = int64_to_uint64
+
+        result = {}
+        for i, query in enumerate(queries):
+            match_tuples = []
+            for j in range(k):
+                match_id = I[i][j]
+                if match_id < 0:
+                    continue
+                dist = distances[i][j]
+                match_tuples.append((output_fn(match_id), self.hash_at(match_id), dist))
+            result[query] = match_tuples
+        return result
+
     def search_with_distance_in_result(
         self,
         queries: t.Sequence[str],

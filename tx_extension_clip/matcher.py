@@ -92,25 +92,50 @@ class CLIPHashIndex(ABC):
     ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
         """
         Search method that returns a mapping from query_str => (id, hash, distance) for the top k matches.
+        It progressively increases the search breadth (`nflip`) to ensure k matches are found.
         """
         query_vectors = [
             numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
         ]
         qs = numpy.array(query_vectors)
-        distances, I = self.faiss_index.search(qs, k)
 
         output_fn: t.Callable[[int], t.Any] = int64_to_uint64
-
         result = {}
+
+        # Max nflip can be something like bits_per_hashmap / 4 or just a constant
+        max_nflip = self.mih_index.b // 2  # Search up to half the bits in a sub-hash
+
         for i, query in enumerate(queries):
+            q_vector = qs[i : i + 1]  # Keep it as a 2D array for faiss
+            distances, I = None, None
+
+            # Progressively increase search breadth to find at least k matches
+            for nflip_val in range(max_nflip + 1):
+                self.mih_index.nflip = nflip_val
+                current_distances, current_I = self.faiss_index.search(q_vector, k)
+
+                # Store the latest result
+                distances, I = current_distances, current_I
+
+                # Check if we found enough valid matches for this query
+                if I is not None:
+                    valid_matches = sum(1 for match_id in I[0] if match_id >= 0)
+                    if valid_matches == k:
+                        break
+
+            # Process the best results we found
             match_tuples = []
-            for j in range(k):
-                match_id = I[i][j]
-                if match_id < 0:
-                    continue
-                dist = distances[i][j]
-                match_tuples.append((output_fn(match_id), self.hash_at(match_id), dist))
+            if I is not None:
+                for j in range(k):
+                    match_id = I[0][j]
+                    if match_id < 0:
+                        continue
+                    dist = distances[0][j]
+                    match_tuples.append(
+                        (output_fn(match_id), self.hash_at(match_id), dist)
+                    )
             result[query] = match_tuples
+
         return result
 
     def search_with_distance_in_result(
@@ -218,7 +243,7 @@ class CLIPMultiHashIndex(CLIPHashIndex):
     the Multi-Index Hashing lookups.
     """
 
-    def __init__(self, nhash: int = 16):
+    def __init__(self, nhash: int = 8):
         bits_per_hashmap = BITS_IN_CLIP // nhash
         faiss_index = faiss.IndexBinaryIDMap2(
             faiss.IndexBinaryMultiHash(BITS_IN_CLIP, nhash, bits_per_hashmap)

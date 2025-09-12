@@ -85,6 +85,55 @@ class CLIPHashIndex(ABC):
             for i in range(len(query_vectors))
         ]
 
+    def search_top_k(
+        self,
+        queries: t.Sequence[CLIP_HASH_TYPE],
+        k: int,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+        """
+        Search method that returns a mapping from query_str => (id, hash, distance) for the top k matches.
+        It progressively increases the search breadth (`nflip`) to ensure k matches are found.
+        """
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
+        ]
+        qs = numpy.array(query_vectors)
+
+        output_fn: t.Callable[[int], t.Any] = int64_to_uint64
+        result = {}
+
+        max_nflip = self.mih_index.b // 2
+
+        for i, query in enumerate(queries):
+            q_vector = qs[i : i + 1]
+            distances, I = None, None
+
+            # Progressively increase search breadth to find at least k matches
+            for nflip_val in range(max_nflip + 1):
+                self.mih_index.nflip = nflip_val
+                current_distances, current_I = self.faiss_index.search(q_vector, k)
+
+                distances, I = current_distances, current_I
+
+                if I is not None:
+                    valid_matches = sum(1 for match_id in I[0] if match_id >= 0)
+                    if valid_matches == k:
+                        break
+
+            match_tuples = []
+            if I is not None:
+                for j in range(k):
+                    match_id = I[0][j]
+                    if match_id < 0:
+                        continue
+                    dist = distances[0][j]
+                    match_tuples.append(
+                        (output_fn(match_id), self.hash_at(match_id), dist)
+                    )
+            result[query] = match_tuples
+
+        return result
+
     def search_with_distance_in_result(
         self,
         queries: t.Sequence[str],
@@ -104,9 +153,12 @@ class CLIPHashIndex(ABC):
         }
         """
 
-        query_vectors = [
-            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
-        ]
+        query_vectors = []
+        try:
+            for q in queries:
+                query_vectors.append(numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8))
+        except (binascii.Error, ValueError) as e:
+            raise ValueError(f"Invalid hex string in queries: {e}")
         qs = numpy.array(query_vectors)
         limits, similarities, I = self.faiss_index.range_search(qs, threshhold + 1)
 

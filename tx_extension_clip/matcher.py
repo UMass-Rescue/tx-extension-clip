@@ -243,7 +243,7 @@ class CLIPMultiHashIndex(CLIPHashIndex):
     the Multi-Index Hashing lookups.
     """
 
-    def __init__(self, nhash: int = 8):
+    def __init__(self, nhash: int = 16):
         bits_per_hashmap = BITS_IN_CLIP // nhash
         faiss_index = faiss.IndexBinaryIDMap2(
             faiss.IndexBinaryMultiHash(BITS_IN_CLIP, nhash, bits_per_hashmap)

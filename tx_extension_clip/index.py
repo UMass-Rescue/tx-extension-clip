@@ -76,7 +76,6 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
     ) -> t.List[CLIPIndexMatch[IndexT]]:
         matches = []
-        # We only query one hash at a time, so this is safe.
         for result_list in results.values():
             for id, _, distance in result_list:
                 matches.append(

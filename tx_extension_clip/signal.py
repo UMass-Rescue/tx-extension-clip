@@ -42,8 +42,6 @@ class CLIPSignal(
 
     @classmethod
     def validate_signal_str(cls, signal_str: str) -> str:
-        print(f"[CLIP DEBUG] Validating hash: {len(signal_str)} chars (expected: 128)")
-        
         if len(signal_str) != 128:
             raise ValueError(
                 f"CLIP hashes must be 128 characters long. Got {len(signal_str)}"
@@ -57,7 +55,6 @@ class CLIPSignal(
         """
         clip_output = CLIP_HASHER.hash_from_bytes(bytes_)
         hash_string = clip_output.serialize()
-        print(f"[CLIP DEBUG] Generated hash: {len(hash_string)} chars")
         return hash_string
 
     @classmethod

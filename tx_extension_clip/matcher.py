@@ -102,11 +102,10 @@ class CLIPHashIndex(ABC):
         output_fn: t.Callable[[int], t.Any] = int64_to_uint64
         result = {}
 
-        # Max nflip can be something like bits_per_hashmap / 4 or just a constant
-        max_nflip = self.mih_index.b // 2  # Search up to half the bits in a sub-hash
+        max_nflip = self.mih_index.b // 2
 
         for i, query in enumerate(queries):
-            q_vector = qs[i : i + 1]  # Keep it as a 2D array for faiss
+            q_vector = qs[i : i + 1]
             distances, I = None, None
 
             # Progressively increase search breadth to find at least k matches
@@ -114,16 +113,13 @@ class CLIPHashIndex(ABC):
                 self.mih_index.nflip = nflip_val
                 current_distances, current_I = self.faiss_index.search(q_vector, k)
 
-                # Store the latest result
                 distances, I = current_distances, current_I
 
-                # Check if we found enough valid matches for this query
                 if I is not None:
                     valid_matches = sum(1 for match_id in I[0] if match_id >= 0)
                     if valid_matches == k:
                         break
 
-            # Process the best results we found
             match_tuples = []
             if I is not None:
                 for j in range(k):

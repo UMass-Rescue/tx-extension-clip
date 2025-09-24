@@ -8,18 +8,17 @@ class TestCLIPMatchers(unittest.TestCase):
             "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "ffffffffffffffffffff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
         ]
         self.ids = list(range(len(self.hashes)))
 
     def _test_index_search(self, index):
         query = self.hashes[0]
         results = index.search([query], 0)
+      
         self.assertEqual(len(results), 1)
         self.assertEqual(len(results[0]), 1)
         self.assertEqual(results[0][0], query)
-
-        # test search with distance
         results_with_dist = index.search_with_distance_in_result([query], 0)
         self.assertIn(query, results_with_dist)
         self.assertEqual(len(results_with_dist[query]), 1)

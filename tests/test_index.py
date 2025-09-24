@@ -12,7 +12,7 @@ class TestCLIPIndices(unittest.TestCase):
             "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "ffffffffffffffffffff000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
         ]
         self.entries = [(h, i) for i, h in enumerate(self.hashes)]
 
@@ -20,10 +20,8 @@ class TestCLIPIndices(unittest.TestCase):
         index = index_cls(self.entries)
         self.assertEqual(len(index), len(self.hashes))
 
-        # Query for the first hash
         query_hash = self.hashes[0]
         results = index.query(query_hash)
-        
         threshold = index_cls.get_match_threshold()
 
         # In our test data, hashes at indices 0, 1, and 2 are within the threshold

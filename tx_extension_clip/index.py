@@ -11,14 +11,15 @@ from threatexchange.signal_type.index import (
 )
 from threatexchange.signal_type.index import T as IndexT
 
+from tx_extension_clip.config import (
+    CLIP_FLAT_HASH_MATCH_THRESHOLD,
+    CLIP_MULTI_HASH_MATCH_THRESHOLD,
+)
 from tx_extension_clip.matcher import (
     CLIPFlatHashIndex,
     CLIPHashIndex,
     CLIPMultiHashIndex,
 )
-
-CLIP_CONFIDENT_MATCH_THRESHOLD = 0.01
-CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD = 0.02
 
 CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithIntDistance, IndexT]
 
@@ -34,7 +35,7 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         Distance should be 0.01
         Similarity should be 0.990020
         """
-        return CLIP_CONFIDENT_MATCH_THRESHOLD
+        return CLIP_MULTI_HASH_MATCH_THRESHOLD
 
     @classmethod
     def _get_empty_index(cls) -> CLIPHashIndex:
@@ -53,20 +54,36 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         """
         Look up entries against the index, up to the max supported distance.
         """
+        return self.query_threshold(hash, self.get_match_threshold())
 
-        # query takes a signal hash but index supports batch queries hence [hash]
-        results = self.index.search_with_distance_in_result(
-            [hash], self.get_match_threshold()
-        )
+    def query_threshold(
+        self, hash: str, threshold: int
+    ) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Look up entries against the index, up to the given threshold.
+        """
+        results = self.index.search_with_distance_in_result([hash], threshold)
+        return self._process_query_results(results)
 
+    def query_top_k(self, hash: str, k: int) -> t.Sequence[CLIPIndexMatch[IndexT]]:
+        """
+        Look up the top K closest entries against the index.
+        """
+        results = self.index.search_top_k([hash], k)
+        return self._process_query_results(results)
+
+    def _process_query_results(
+        self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
+    ) -> t.List[CLIPIndexMatch[IndexT]]:
         matches = []
-        for id, _, distance in results[hash]:
-            matches.append(
-                IndexMatchUntyped(
-                    SignalSimilarityInfoWithIntDistance(int(distance)),
-                    self.local_id_to_entry[id][1],
+        for result_list in results.values():
+            for id, _, distance in result_list:
+                matches.append(
+                    IndexMatchUntyped(
+                        SignalSimilarityInfoWithIntDistance(int(distance)),
+                        self.local_id_to_entry[id][1],
+                    )
                 )
-            )
         return matches
 
     def add(self, signal_str: str, entry: IndexT) -> None:
@@ -93,7 +110,7 @@ class CLIPFlatIndex(CLIPIndex):
 
     @classmethod
     def get_match_threshold(cls):
-        return CLIP_FLAT_CONFIDENT_MATCH_THRESHOLD
+        return CLIP_FLAT_HASH_MATCH_THRESHOLD
 
     @classmethod
     def _get_empty_index(cls) -> CLIPHashIndex:

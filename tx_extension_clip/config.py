@@ -10,7 +10,7 @@ CLIP_DISTANCE_THRESHOLD: int = (
     CLIP_MULTI_HASH_MATCH_THRESHOLD  # The default for one-to-one comparisons
 )
 CLIP_NORMALIZED: bool = True
-OPEN_CLIP_MODEL_NAME: str = "xlm-roberta-base-ViT-B-32"
+OPEN_CLIP_MODEL_NAME: str = "XLM-RoBERTa-base-ViT-B-32"
 OPEN_CLIP_PRETRAINED: str = "laion5b_s13b_b90k"
 BITS_IN_CLIP: int = 512  # 512 binary features from quantized CLIP embeddings
 

@@ -78,7 +78,7 @@ class CLIPHasher:
         self._transform: Optional[transforms.Compose] = None
 
         #this open clip torch issue has been fixed with this merge  https://github.com/mlfoundations/open_clip/pull/595
-        #fix_open_clip()
+        fix_open_clip()
 
     def _quantize_to_binary(self, float32_embedding: np.ndarray) -> np.ndarray:
         """

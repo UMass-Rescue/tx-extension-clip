@@ -1,7 +1,11 @@
 import unittest
 import binascii
 import numpy as np
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from tests.test_utils import MOCKED_MODULES
+
+patch.dict("sys.modules", MOCKED_MODULES).start()
 
 from tx_extension_clip.index import CLIPIndex, CLIPFlatIndex
 

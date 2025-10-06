@@ -1,5 +1,10 @@
 import unittest
 import numpy as np
+from unittest.mock import patch
+
+from tests.test_utils import MOCKED_MODULES
+
+patch.dict("sys.modules", MOCKED_MODULES).start()
 
 from tx_extension_clip.utils.distance import hamming_distance, cosine_distance
 

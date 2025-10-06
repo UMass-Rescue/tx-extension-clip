@@ -1,4 +1,9 @@
 import unittest
+from unittest.mock import patch
+
+from tests.test_utils import MOCKED_MODULES
+
+patch.dict("sys.modules", MOCKED_MODULES).start()
 
 from tx_extension_clip.matcher import CLIPFlatHashIndex, CLIPMultiHashIndex
 

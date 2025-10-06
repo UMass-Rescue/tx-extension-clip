@@ -1,6 +1,10 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
+from tests.test_utils import MOCKED_MODULES
+
+patch.dict("sys.modules", MOCKED_MODULES).start()
+
 from tx_extension_clip.manifest import CLIPExtensionManifest
 
 class TestCLIPExtensionManifest(unittest.TestCase):

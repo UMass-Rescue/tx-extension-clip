@@ -3,7 +3,6 @@ from unittest.mock import patch, MagicMock
 
 from tests.test_utils import MOCKED_MODULES
 
-# Mock heavy dependencies before importing tx_extension_clip modules
 patch.dict("sys.modules", MOCKED_MODULES).start()
 
 from tx_extension_clip.manifest import CLIPExtensionManifest

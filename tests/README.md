@@ -17,5 +17,5 @@
 
     Execute the tests using the built image:
     ```sh
-    docker run --rm -e TX_CLIP_TEST_ENV=true clip-test-runner
+    docker run --rm clip-test-runner
     ```

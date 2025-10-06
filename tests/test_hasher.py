@@ -1,8 +1,20 @@
+import sys
 import unittest
 import numpy as np
 from PIL import Image
 from unittest.mock import patch, MagicMock
-import sys
+
+# Mock heavy dependencies before importing tx_extension_clip modules
+# Use patch.dict to install mocks in sys.modules
+patch.dict('sys.modules', {
+    'torch': MagicMock(),
+    'torch.nn': MagicMock(),
+    'torch.nn.functional': MagicMock(),
+    'open_clip': MagicMock(),
+    'open_clip.factory': MagicMock(),
+    'torchvision': MagicMock(),
+    'torchvision.transforms': MagicMock(),
+}).start()
 
 from tx_extension_clip.hasher import CLIPOutput, CLIPHasher
 from tx_extension_clip.config import (
@@ -46,8 +58,9 @@ class TestCLIPHasher(unittest.TestCase):
         self.assertEqual(binary_hash.shape, (1,))
         self.assertEqual(binary_hash[0], 170)
 
+    @patch("tx_extension_clip.hasher.torch")
     @patch("tx_extension_clip.hasher.open_clip.create_model_and_transforms")
-    def test_hash_from_image(self, mock_create_model):
+    def test_hash_from_image(self, mock_create_model, mock_torch):
         mock_model = MagicMock()
         mock_preprocess = MagicMock()
         mock_create_model.return_value = (mock_model, None, mock_preprocess)
@@ -61,8 +74,15 @@ class TestCLIPHasher(unittest.TestCase):
         mock_numpy_array = np.ones((512,), dtype=np.float32)
         image_feature_mock = MagicMock()
         image_feature_mock.numpy.return_value = mock_numpy_array
+        
+        # Set up torch mocks properly
+        mock_transformed_images = MagicMock()
+        mock_torch.stack.return_value = mock_transformed_images
+        mock_torch.no_grad.return_value.__enter__ = MagicMock(return_value=None)
+        mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=None)
+        mock_torch.nn.functional.normalize.side_effect = lambda x, dim: x
+        
         mock_model.visual.return_value = [image_feature_mock]
-        sys.modules["torch"].nn.functional.normalize.side_effect = lambda x, dim: x
 
         expected_hash = np.array([1, 2, 3, 4], dtype=np.uint8)
         with patch.object(

@@ -1,4 +1,17 @@
 import unittest
+from unittest.mock import MagicMock, patch
+
+# Mock heavy dependencies before importing tx_extension_clip modules
+# Use patch.dict to install mocks in sys.modules
+patch.dict('sys.modules', {
+    'torch': MagicMock(),
+    'torch.nn': MagicMock(),
+    'torch.nn.functional': MagicMock(),
+    'open_clip': MagicMock(),
+    'open_clip.factory': MagicMock(),
+    'torchvision': MagicMock(),
+    'torchvision.transforms': MagicMock(),
+}).start()
 
 from tx_extension_clip.matcher import CLIPFlatHashIndex, CLIPMultiHashIndex
 

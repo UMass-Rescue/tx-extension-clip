@@ -4,17 +4,10 @@ import numpy as np
 from PIL import Image
 from unittest.mock import patch, MagicMock
 
+from tests.test_utils import MOCKED_MODULES
+
 # Mock heavy dependencies before importing tx_extension_clip modules
-# Use patch.dict to install mocks in sys.modules
-patch.dict('sys.modules', {
-    'torch': MagicMock(),
-    'torch.nn': MagicMock(),
-    'torch.nn.functional': MagicMock(),
-    'open_clip': MagicMock(),
-    'open_clip.factory': MagicMock(),
-    'torchvision': MagicMock(),
-    'torchvision.transforms': MagicMock(),
-}).start()
+patch.dict("sys.modules", MOCKED_MODULES).start()
 
 from tx_extension_clip.hasher import CLIPOutput, CLIPHasher
 from tx_extension_clip.config import (

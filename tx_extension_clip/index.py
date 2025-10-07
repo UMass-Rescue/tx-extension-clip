@@ -57,12 +57,12 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         return self.query_threshold(hash, self.get_match_threshold())
 
     def query_threshold(
-        self, hash: str, threshold: int
+        self, hash: str, threshold: str
     ) -> t.Sequence[CLIPIndexMatch[IndexT]]:
         """
         Look up entries against the index, up to the given threshold.
         """
-        results = self.index.search_with_distance_in_result([hash], threshold)
+        results = self.index.search_with_distance_in_result([hash], int(threshold))
         return self._process_query_results(results)
 
     def query_top_k(self, hash: str, k: int) -> t.Sequence[CLIPIndexMatch[IndexT]]:

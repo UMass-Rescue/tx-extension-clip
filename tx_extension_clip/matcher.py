@@ -35,7 +35,7 @@ class CLIPHashIndex(ABC):
     def search(
         self,
         queries: t.Sequence[CLIP_HASH_TYPE],
-        threshhold: int,
+        threshold: int,
         return_as_ids: bool = False,
     ):
         """
@@ -70,7 +70,7 @@ class CLIPHashIndex(ABC):
             numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.uint8) for q in queries
         ]
         qs = numpy.array(query_vectors)
-        limits, _, I = self.faiss_index.range_search(qs, threshhold + 1)
+        limits, _, I = self.faiss_index.range_search(qs, int(threshold) + 1)
 
         if return_as_ids:
             # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
@@ -137,7 +137,7 @@ class CLIPHashIndex(ABC):
     def search_with_distance_in_result(
         self,
         queries: t.Sequence[str],
-        threshhold: int,
+        threshold: int,
     ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
         """
         Search method that return a mapping from query_str =>  (id, hash, distance)
@@ -160,7 +160,7 @@ class CLIPHashIndex(ABC):
         except (binascii.Error, ValueError) as e:
             raise ValueError(f"Invalid hex string in queries: {e}")
         qs = numpy.array(query_vectors)
-        limits, similarities, I = self.faiss_index.range_search(qs, threshhold + 1)
+        limits, similarities, I = self.faiss_index.range_search(qs, int(threshold) + 1)
 
         # for custom ids, we understood them initially as uint64 numbers and then coerced them internally to be signed
         # int64s, so we need to reverse this before returning them back to the caller. For non custom ids, this will
@@ -289,19 +289,19 @@ class CLIPMultiHashIndex(CLIPHashIndex):
     def search(
         self,
         queries: t.Sequence[CLIP_HASH_TYPE],
-        threshhold: int,
+        threshold: int,
         return_as_ids: bool = False,
     ):
-        self.mih_index.nflip = threshhold // self.mih_index.nhash
-        return super().search(queries, threshhold, return_as_ids)
+        self.mih_index.nflip = int(threshold) // self.mih_index.nhash
+        return super().search(queries, threshold, return_as_ids)
 
     def search_with_distance_in_result(
         self,
         queries: t.Sequence[str],
-        threshhold: int,
+        threshold: int,
     ):
-        self.mih_index.nflip = threshhold // self.mih_index.nhash
-        return super().search_with_distance_in_result(queries, threshhold)
+        self.mih_index.nflip = int(threshold) // self.mih_index.nhash
+        return super().search_with_distance_in_result(queries, threshold)
 
     def hash_at(self, idx: int) -> str:
         i64_id = uint64_to_int64(idx)

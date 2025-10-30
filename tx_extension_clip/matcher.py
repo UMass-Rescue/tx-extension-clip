@@ -9,6 +9,7 @@ from tx_extension_clip.config import BITS_IN_CLIP
 from tx_extension_clip.utils.uint import int64_to_uint64, uint64_to_int64
 
 CLIP_HASH_TYPE = t.Union[str, bytes]
+CLIP_VECTOR_TYPE = numpy.ndarray
 
 
 class CLIPHashIndex(ABC):
@@ -330,3 +331,109 @@ class CLIPMultiHashIndex(CLIPHashIndex):
     def __setstate__(self, data):
         super().__setstate__(data)
         self.__construct_index_rev_map()
+
+
+class CLIPIndexFlatIP:
+    """
+    FAISS index for float CLIP vectors using IndexFlatIP for cosine similarity.
+    """
+
+    def __init__(self, dimension: int = 512):
+        self.dimension = dimension
+        self.faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
+        self.id_to_vector: t.Dict[int, numpy.ndarray] = {}
+
+    def add(self, vector_strs: t.Iterable[str], custom_ids: t.Iterable[int]):
+        vector_str_list = list(vector_strs)
+        id_list = list(custom_ids)
+        
+        if len(vector_str_list) == 0:
+            return
+        
+        vector_list = [
+            numpy.frombuffer(binascii.unhexlify(v), dtype=numpy.float32) for v in vector_str_list
+        ]
+        vectors_array = numpy.array(vector_list, dtype=numpy.float32)
+        ids_array = numpy.array(id_list, dtype=numpy.int64)
+        
+        for vec, custom_id in zip(vector_list, id_list):
+            self.id_to_vector[custom_id] = vec
+        
+        self.faiss_index.add_with_ids(vectors_array, ids_array)
+
+    def search(
+        self,
+        queries: t.Sequence[str],
+        k: int,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        if len(queries) == 0:
+            return {}
+        
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
+        ]
+        queries_array = numpy.array(query_vectors, dtype=numpy.float32)
+        similarities, indices = self.faiss_index.search(queries_array, k)
+        
+        result = {}
+        for i, query in enumerate(queries):
+            matches = []
+            for j in range(k):
+                idx = indices[i][j]
+                if idx >= 0:
+                    similarity = float(similarities[i][j])
+                    vector = self.id_to_vector[idx]
+                    vector_hex = binascii.hexlify(vector.tobytes()).decode()
+                    matches.append((int(idx), vector_hex, similarity))
+            result[query] = matches
+        
+        return result
+
+    def search_threshold(
+        self,
+        queries: t.Sequence[str],
+        threshold: float,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        if len(queries) == 0:
+            return {}
+        
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
+        ]
+        queries_array = numpy.array(query_vectors, dtype=numpy.float32)
+        lims, similarities, indices = self.faiss_index.range_search(queries_array, threshold)
+        
+        result = {}
+        for i, query in enumerate(queries):
+            matches = []
+            start_idx = lims[i]
+            end_idx = lims[i + 1]
+            for j in range(start_idx, end_idx):
+                idx = int(indices[j])
+                similarity = float(similarities[j])
+                if similarity >= threshold:
+                    vector = self.id_to_vector[idx]
+                    vector_hex = binascii.hexlify(vector.tobytes()).decode()
+                    matches.append((idx, vector_hex, similarity))
+            result[query] = matches
+        
+        return result
+
+    def vector_at(self, idx: int) -> numpy.ndarray:
+        return self.id_to_vector[idx]
+
+    def __len__(self) -> int:
+        return self.faiss_index.ntotal
+
+    def __getstate__(self):
+        faiss_data = faiss.serialize_index(self.faiss_index)
+        return {
+            'dimension': self.dimension,
+            'faiss_data': faiss_data,
+            'id_to_vector': self.id_to_vector,
+        }
+
+    def __setstate__(self, state):
+        self.dimension = state['dimension']
+        self.faiss_index = faiss.deserialize_index(state['faiss_data'])
+        self.id_to_vector = state['id_to_vector']

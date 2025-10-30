@@ -205,6 +205,39 @@ class CLIPHasher:
             for image_feature in image_features
         ]
 
+    def get_float_vectors_from_image_list(self, images: List[Image.Image]) -> np.ndarray:
+        """Returns float CLIP vectors from a list of PIL Image objects.
+
+        Args:
+            images (List[Image]): The list of PIL Image objects.
+
+        Returns:
+            np.ndarray: Array of float vectors.
+        """
+        transformed_images: torch.Tensor = torch.stack(
+            [self.transform(image) for image in images]
+        )
+        
+        with torch.no_grad():
+            image_features: torch.Tensor = self.model.visual(transformed_images)
+        
+        if self.normalized:
+            image_features = torch.nn.functional.normalize(image_features, dim=1)
+        
+        return image_features.numpy()
+
+    def get_float_vector_strs_from_image_list(self, images: List[Image.Image]) -> List[str]:
+        """Returns serialized float CLIP vectors from a list of PIL Image objects.
+
+        Args:
+            images (List[Image]): The list of PIL Image objects.
+
+        Returns:
+            List[str]: List of hex-encoded float vectors.
+        """
+        vectors = self.get_float_vectors_from_image_list(images)
+        return [str(binascii.hexlify(vec.tobytes()), "ascii") for vec in vectors]
+
     def hash_from_bytes_list(self, file_bytes_list: List[bytes]) -> List[CLIPOutput]:
         """Returns the CLIP hash from a list of bytes objects.
 

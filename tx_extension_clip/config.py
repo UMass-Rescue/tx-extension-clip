@@ -9,10 +9,14 @@ CLIP_FLAT_HASH_MATCH_THRESHOLD: int = 76   # Slightly higher threshold for FlatH
 CLIP_DISTANCE_THRESHOLD: int = (
     CLIP_MULTI_HASH_MATCH_THRESHOLD  # The default for one-to-one comparisons
 )
+
+CLIP_FLOAT_SIMILARITY_THRESHOLD: float = 0.90
+CLIP_FLOAT_DISTANCE_THRESHOLD: float = 0.10
+
 CLIP_NORMALIZED: bool = True
 OPEN_CLIP_MODEL_NAME: str = "xlm-roberta-base-ViT-B-32"
 OPEN_CLIP_PRETRAINED: str = "laion5b_s13b_b90k"
-BITS_IN_CLIP: int = 512  # 512 binary features from quantized CLIP embeddings
+BITS_IN_CLIP: int = 512
 
 CLIP_HASHER: CLIPHasher = CLIPHasher(
     model_name=OPEN_CLIP_MODEL_NAME,

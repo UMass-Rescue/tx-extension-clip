@@ -7,17 +7,21 @@ import typing as t
 from threatexchange.signal_type.index import (
     IndexMatchUntyped,
     SignalSimilarityInfoWithIntDistance,
+    SignalSimilarityInfoWithFloatDistance,
     SignalTypeIndex,
 )
 from threatexchange.signal_type.index import T as IndexT
 
 from tx_extension_clip.config import (
+    BITS_IN_CLIP,
     CLIP_FLAT_HASH_MATCH_THRESHOLD,
+    CLIP_FLOAT_SIMILARITY_THRESHOLD,
     CLIP_MULTI_HASH_MATCH_THRESHOLD,
 )
 from tx_extension_clip.matcher import (
     CLIPFlatHashIndex,
     CLIPHashIndex,
+    CLIPIndexFlatIP,
     CLIPMultiHashIndex,
 )
 
@@ -115,3 +119,49 @@ class CLIPFlatIndex(CLIPIndex):
     @classmethod
     def _get_empty_index(cls) -> CLIPHashIndex:
         return CLIPFlatHashIndex()
+
+
+class CLIPFloatIndex(SignalTypeIndex[IndexT]):
+    """
+    Wrapper around CLIPIndexFlatIP for float vector cosine similarity.
+    """
+
+    @classmethod
+    def get_match_threshold(cls) -> float:
+        return CLIP_FLOAT_SIMILARITY_THRESHOLD
+
+    def __init__(self, entries: t.Iterable[t.Tuple[str, IndexT]] = ()) -> None:
+        super().__init__()
+        self.local_id_to_entry: t.List[t.Tuple[str, IndexT]] = []
+        self.index: CLIPIndexFlatIP = CLIPIndexFlatIP(dimension=BITS_IN_CLIP)
+        self.add_all(entries=entries)
+
+    def __len__(self) -> int:
+        return len(self.local_id_to_entry)
+
+    def query(self, hash: str) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+        results = self.index.search_threshold([hash], self.get_match_threshold())
+        
+        matches = []
+        for result_list in results.values():
+            for id, _, similarity in result_list:
+                distance = 1.0 - similarity
+                matches.append(
+                    IndexMatchUntyped(
+                        SignalSimilarityInfoWithFloatDistance(distance),
+                        self.local_id_to_entry[id][1],
+                    )
+                )
+        return matches
+
+    def add(self, signal_str: str, entry: IndexT) -> None:
+        self.add_all(((signal_str, entry),))
+
+    def add_all(self, entries: t.Iterable[t.Tuple[str, IndexT]]) -> None:
+        start = len(self.local_id_to_entry)
+        self.local_id_to_entry.extend(entries)
+        if start != len(self.local_id_to_entry):
+            self.index.add(
+                [e[0] for e in self.local_id_to_entry[start:]],
+                range(start, len(self.local_id_to_entry)),
+            )

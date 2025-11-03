@@ -7,10 +7,13 @@ import typing as t
 from threatexchange.signal_type.index import (
     IndexMatchUntyped,
     SignalSimilarityInfoWithIntDistance,
-    SignalSimilarityInfoWithFloatDistance,
+    SignalSimilarityInfoWithSingleDistance,
     SignalTypeIndex,
 )
 from threatexchange.signal_type.index import T as IndexT
+
+# Create float distance type (similar to how ThreatExchange defines IntDistance)
+SignalSimilarityInfoWithFloatDistance = SignalSimilarityInfoWithSingleDistance[float]
 
 from tx_extension_clip.config import (
     BITS_IN_CLIP,

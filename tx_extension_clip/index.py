@@ -147,11 +147,37 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
     def query(
         self, hash: str
     ) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
-        results = self.index.search_threshold([hash], self.get_match_threshold())
+        return self.query_threshold(hash)
+
+    def query_top_k(
+        self, hash: str, k: int
+    ) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+        """Find the top k closest matches to a given hash."""
+        results = self.index.search_top_k([hash], k)
 
         matches = []
-        for result_list in results.values():
-            for id, _, similarity in result_list:
+        if hash in results:
+            for id, _, similarity in results[hash]:
+                distance = 1.0 - similarity
+                matches.append(
+                    IndexMatchUntyped(
+                        SignalSimilarityInfoWithFloatDistance(distance),
+                        self.local_id_to_entry[id][1],
+                    )
+                )
+        return matches
+
+    def query_threshold(
+        self, hash: str, threshold: t.Optional[float] = None
+    ) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+        """Find all matches within a given similarity threshold."""
+        if threshold is None:
+            threshold = self.get_match_threshold()
+        results = self.index.search_threshold([hash], threshold)
+
+        matches = []
+        if hash in results:
+            for id, _, similarity in results[hash]:
                 distance = 1.0 - similarity
                 matches.append(
                     IndexMatchUntyped(

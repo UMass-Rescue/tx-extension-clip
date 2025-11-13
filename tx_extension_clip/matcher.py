@@ -28,7 +28,7 @@ class CLIPFloatIndex(ABC):
         pass
 
     @abstractmethod
-    def search(
+    def search_top_k(
         self,
         queries: t.Sequence[str],
         k: int,
@@ -406,7 +406,7 @@ class CLIPFloatVectorIndex(CLIPFloatIndex):
 
         self.faiss_index.add_with_ids(vectors_array, ids_array)
 
-    def search(
+    def search_top_k(
         self,
         queries: t.Sequence[str],
         k: int,

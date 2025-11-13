@@ -24,7 +24,7 @@ from tx_extension_clip.config import (
 from tx_extension_clip.matcher import (
     CLIPFlatHashIndex,
     CLIPHashIndex,
-    CLIPIndexFlatIP,
+    CLIPFloatVectorIndex,
     CLIPMultiHashIndex,
 )
 
@@ -135,16 +135,20 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
 
     def __init__(self, entries: t.Iterable[t.Tuple[str, IndexT]] = ()) -> None:
         super().__init__()
-        self.local_id_to_entry: t.List[t.Tuple[str, IndexT]] = []
-        self.index: CLIPIndexFlatIP = CLIPIndexFlatIP(dimension=BITS_IN_CLIP)
-        self.add_all(entries=entries)
+        self.local_id_to_entry: t.List[t.Tuple[str, IndexT]] = list(entries)
+        self.index: CLIPFloatVectorIndex = CLIPFloatVectorIndex(
+            vectors=[(s, i) for i, (s, _) in enumerate(self.local_id_to_entry)],
+            dimension=BITS_IN_CLIP,
+        )
 
     def __len__(self) -> int:
         return len(self.local_id_to_entry)
 
-    def query(self, hash: str) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+    def query(
+        self, hash: str
+    ) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
         results = self.index.search_threshold([hash], self.get_match_threshold())
-        
+
         matches = []
         for result_list in results.values():
             for id, _, similarity in result_list:
@@ -161,10 +165,11 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
         self.add_all(((signal_str, entry),))
 
     def add_all(self, entries: t.Iterable[t.Tuple[str, IndexT]]) -> None:
-        start = len(self.local_id_to_entry)
-        self.local_id_to_entry.extend(entries)
-        if start != len(self.local_id_to_entry):
-            self.index.add(
-                [e[0] for e in self.local_id_to_entry[start:]],
-                range(start, len(self.local_id_to_entry)),
-            )
+        start = len(self)
+        entry_list = list(entries)
+        if not entry_list:
+            return
+        self.local_id_to_entry.extend(entry_list)
+        self.index.add(
+            [(s, i + start) for i, (s, _) in enumerate(entry_list)],
+        )

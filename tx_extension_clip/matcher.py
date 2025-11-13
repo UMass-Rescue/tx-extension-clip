@@ -12,6 +12,46 @@ CLIP_HASH_TYPE = t.Union[str, bytes]
 CLIP_VECTOR_TYPE = numpy.ndarray
 
 
+class CLIPFloatIndex(ABC):
+    """Abstract base class for CLIP float vector indices."""
+
+    @abstractmethod
+    def __init__(
+        self,
+        vectors: t.Iterable[t.Tuple[str, int]] = (),
+        dimension: int = 512,
+    ):
+        pass
+
+    @abstractmethod
+    def add(self, vectors: t.Iterable[t.Tuple[str, int]]):
+        pass
+
+    @abstractmethod
+    def search(
+        self,
+        queries: t.Sequence[str],
+        k: int,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        pass
+
+    @abstractmethod
+    def search_threshold(
+        self,
+        queries: t.Sequence[str],
+        threshold: float,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        pass
+
+    @abstractmethod
+    def vector_at(self, idx: int) -> numpy.ndarray:
+        pass
+
+    @abstractmethod
+    def __len__(self) -> int:
+        pass
+
+
 class CLIPHashIndex(ABC):
     @abstractmethod
     def __init__(self, faiss_index: faiss.IndexBinary) -> None:
@@ -333,32 +373,37 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         self.__construct_index_rev_map()
 
 
-class CLIPIndexFlatIP:
+class CLIPFloatVectorIndex(CLIPFloatIndex):
     """
     FAISS index for float CLIP vectors using IndexFlatIP for cosine similarity.
     """
 
-    def __init__(self, dimension: int = 512):
+    def __init__(
+        self,
+        vectors: t.Iterable[t.Tuple[str, int]] = (),
+        dimension: int = 512,
+    ):
         self.dimension = dimension
         self.faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
         self.id_to_vector: t.Dict[int, numpy.ndarray] = {}
+        self.add(vectors)
 
-    def add(self, vector_strs: t.Iterable[str], custom_ids: t.Iterable[int]):
-        vector_str_list = list(vector_strs)
-        id_list = list(custom_ids)
-        
-        if len(vector_str_list) == 0:
+    def add(self, vectors: t.Iterable[t.Tuple[str, int]]):
+        """Adds a collection of vectors to the index."""
+        vector_list = []
+        id_list = []
+        for vec_str, custom_id in vectors:
+            vec = numpy.frombuffer(binascii.unhexlify(vec_str), dtype=numpy.float32)
+            vector_list.append(vec)
+            id_list.append(custom_id)
+            self.id_to_vector[custom_id] = vec
+
+        if not vector_list:
             return
-        
-        vector_list = [
-            numpy.frombuffer(binascii.unhexlify(v), dtype=numpy.float32) for v in vector_str_list
-        ]
+
         vectors_array = numpy.array(vector_list, dtype=numpy.float32)
         ids_array = numpy.array(id_list, dtype=numpy.int64)
-        
-        for vec, custom_id in zip(vector_list, id_list):
-            self.id_to_vector[custom_id] = vec
-        
+
         self.faiss_index.add_with_ids(vectors_array, ids_array)
 
     def search(
@@ -401,8 +446,10 @@ class CLIPIndexFlatIP:
             numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
         ]
         queries_array = numpy.array(query_vectors, dtype=numpy.float32)
-        lims, similarities, indices = self.faiss_index.range_search(queries_array, threshold)
-        
+        lims, similarities, indices = self.faiss_index.range_search(
+            queries_array, threshold
+        )
+
         result = {}
         for i, query in enumerate(queries):
             matches = []

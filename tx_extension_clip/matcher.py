@@ -130,7 +130,7 @@ class CLIPHashIndex(ABC):
         self,
         queries: t.Sequence[CLIP_HASH_TYPE],
         k: int,
-    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
         """
         Search method that returns a mapping from query_str => (id, hash, distance) for the top k matches.
         It progressively increases the search breadth (`nflip`) to ensure k matches are found.
@@ -168,6 +168,9 @@ class CLIPHashIndex(ABC):
                     if match_id < 0:
                         continue
                     dist = distances[0][j]
+                    # Convert numpy types to Python native types for JSON serialization
+                    if hasattr(dist, "item"):
+                        dist = dist.item()
                     match_tuples.append(
                         (output_fn(match_id), self.hash_at(match_id), dist)
                     )
@@ -179,7 +182,7 @@ class CLIPHashIndex(ABC):
         self,
         queries: t.Sequence[str],
         threshhold: int,
-    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
         """
         Search method that return a mapping from query_str =>  (id, hash, distance)
 
@@ -215,6 +218,9 @@ class CLIPHashIndex(ABC):
             distances = [idx for idx in similarities[limits[i] : limits[i + 1]]]
             for match, distance in zip(matches, distances):
                 # (Id, Hash, Distance)
+                # Convert numpy types to Python native types for JSON serialization
+                if hasattr(distance, "item"):
+                    distance = distance.item()
                 match_tuples.append((output_fn(match), self.hash_at(match), distance))
             result[query] = match_tuples
         return result

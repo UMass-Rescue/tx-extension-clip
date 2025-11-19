@@ -85,7 +85,6 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         matches = []
         for result_list in results.values():
             for id, _, distance in result_list:
-                # distance is already Python int from matcher
                 matches.append(
                     IndexMatchUntyped(
                         SignalSimilarityInfoWithIntDistance(distance),
@@ -162,12 +161,10 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
     def _process_query_results(
         self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
     ) -> t.List[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
-        """Process results from float vector matcher (cosine similarity as float)."""
+        """Process results from float vector matcher (returns distance)."""
         matches = []
         for hash, result_list in results.items():
-            for id, _, similarity in result_list:
-                # Convert similarity to distance; similarity is already Python float from matcher
-                distance = float(1.0 - similarity)
+            for id, _, distance in result_list:
                 matches.append(
                     IndexMatchUntyped(
                         SignalSimilarityInfoWithFloatDistance(distance),

@@ -29,6 +29,7 @@ from tx_extension_clip.matcher import (
 )
 
 CLIPIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithIntDistance, IndexT]
+CLIPFloatIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]
 
 
 class CLIPIndex(SignalTypeIndex[IndexT]):
@@ -154,18 +155,7 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
     ) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
         """Find the top k closest matches to a given hash."""
         results = self.index.search_top_k([hash], k)
-
-        matches = []
-        if hash in results:
-            for id, _, similarity in results[hash]:
-                distance = 1.0 - similarity
-                matches.append(
-                    IndexMatchUntyped(
-                        SignalSimilarityInfoWithFloatDistance(distance),
-                        self.local_id_to_entry[id][1],
-                    )
-                )
-        return matches
+        return self._process_query_results(results)
 
     def query_threshold(
         self, hash: str, threshold: t.Optional[float] = None
@@ -174,10 +164,14 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
         if threshold is None:
             threshold = self.get_match_threshold()
         results = self.index.search_threshold([hash], threshold)
+        return self._process_query_results(results)
 
+    def _process_query_results(
+        self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
+    ) -> t.List[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
         matches = []
-        if hash in results:
-            for id, _, similarity in results[hash]:
+        for hash, result_list in results.items():
+            for id, _, similarity in result_list:
                 distance = 1.0 - similarity
                 matches.append(
                     IndexMatchUntyped(

@@ -444,13 +444,21 @@ class CLIPFloatVectorIndex(CLIPFloatIndex):
         if len(self) == 0:
             return {q: [] for q in queries}
         
+        # Validate k
+        if k <= 0:
+            return {q: [] for q in queries}
+        
         query_vectors = [
             numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
         ]
         queries_array = numpy.array(query_vectors, dtype=numpy.float32)
         
-        # Ensure k doesn't exceed index size
-        k = min(k, len(self))
+        # Ensure k doesn't exceed index size and convert to Python int
+        k = int(min(k, len(self)))
+        
+        # Double-check k is still valid after adjustment
+        if k <= 0:
+            return {q: [] for q in queries}
         
         similarities, indices = self.faiss_index.search(queries_array, k)
         
@@ -485,6 +493,12 @@ class CLIPFloatVectorIndex(CLIPFloatIndex):
         
         # Convert max distance to min similarity: distance = 1.0 - similarity
         similarity_threshold = 1.0 - threshold
+        
+        # Add small epsilon tolerance for exact matches (threshold 0.0) to account for floating point precision
+        # For threshold 0.0, we want similarity >= 1.0, but due to FP errors it might be 0.9999999
+        # So we lower the FAISS threshold slightly to catch exact matches
+        if threshold <= 1e-6:  # Very close to 0.0 (exact match)
+            similarity_threshold = similarity_threshold - 1e-6  # Allow small tolerance
         
         query_vectors = [
             numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries

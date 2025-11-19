@@ -3,13 +3,22 @@ from scipy import spatial
 
 
 def similarity_to_distance(similarity: float) -> float:
-    """Convert cosine similarity to distance, clamped to [0.0, 1.0]."""
-    distance = 1.0 - similarity
-    return max(0.0, min(1.0, float(distance)))
+    
+    return float(1.0 - similarity)
 
 
 def cosine_distance(vector_a: np.ndarray, vector_b: np.ndarray) -> float:
-    """Returns cosine distance between two vectors, handling edge cases for zero vectors."""
+    """
+    Returns cosine distance between two vectors, handling edge cases for zero vectors.
+    
+    For normalized vectors, cosine distance ranges from [0, 2]:
+    - 0.0 = identical vectors (cosine similarity = 1.0)
+    - 1.0 = orthogonal vectors (cosine similarity = 0.0)
+    - 2.0 = opposite vectors (cosine similarity = -1.0)
+    
+    Uses scipy's cosine distance which returns 1 - cosine_similarity.
+    For normalized vectors, this gives the full range [0, 2].
+    """
     a_is_zero = np.allclose(vector_a, 0, rtol=1e-9, atol=1e-9)
     b_is_zero = np.allclose(vector_b, 0, rtol=1e-9, atol=1e-9)
     

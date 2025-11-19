@@ -165,6 +165,9 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
         matches = []
         for hash, result_list in results.items():
             for id, _, distance in result_list:
+                # Validate id is within bounds
+                if id < 0 or id >= len(self.local_id_to_entry):
+                    continue
                 matches.append(
                     IndexMatchUntyped(
                         SignalSimilarityInfoWithFloatDistance(distance),

@@ -440,10 +440,18 @@ class CLIPFloatVectorIndex(CLIPFloatIndex):
         if len(queries) == 0:
             return {}
         
+        # Check if index is empty
+        if len(self) == 0:
+            return {q: [] for q in queries}
+        
         query_vectors = [
             numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
         ]
         queries_array = numpy.array(query_vectors, dtype=numpy.float32)
+        
+        # Ensure k doesn't exceed index size
+        k = min(k, len(self))
+        
         similarities, indices = self.faiss_index.search(queries_array, k)
         
         result = {}

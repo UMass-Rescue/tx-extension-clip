@@ -12,8 +12,22 @@ CLIP_HASH_TYPE = t.Union[str, bytes]
 CLIP_VECTOR_TYPE = numpy.ndarray
 
 
+def _to_python_int(value: t.Any) -> int:
+    """Convert numpy integer types to Python int (for Hamming distances)."""
+    if hasattr(value, "item"):
+        return int(value.item())
+    return int(value)
+
+
+def _to_python_float(value: t.Any) -> float:
+    """Convert numpy float types to Python float (for cosine similarity/distance)."""
+    if hasattr(value, "item"):
+        return float(value.item())
+    return float(value)
+
+
 class CLIPFloatIndex(ABC):
-    """Abstract base class for CLIP float vector indices."""
+    """Abstract base class for CLIP float vector indices. Uses cosine similarity (returns float)."""
 
     @abstractmethod
     def __init__(
@@ -53,6 +67,8 @@ class CLIPFloatIndex(ABC):
 
 
 class CLIPHashIndex(ABC):
+    """Abstract base class for binary CLIP hash indices. Uses Hamming distance (returns int)."""
+    
     @abstractmethod
     def __init__(self, faiss_index: faiss.IndexBinary) -> None:
         self.faiss_index = faiss_index
@@ -130,7 +146,7 @@ class CLIPHashIndex(ABC):
         self,
         queries: t.Sequence[CLIP_HASH_TYPE],
         k: int,
-    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, int]]]:
         """
         Search method that returns a mapping from query_str => (id, hash, distance) for the top k matches.
         It progressively increases the search breadth (`nflip`) to ensure k matches are found.
@@ -167,10 +183,7 @@ class CLIPHashIndex(ABC):
                     match_id = I[0][j]
                     if match_id < 0:
                         continue
-                    dist = distances[0][j]
-                    # Convert numpy types to Python native types for JSON serialization
-                    if hasattr(dist, "item"):
-                        dist = dist.item()
+                    dist = _to_python_int(distances[0][j])
                     match_tuples.append(
                         (output_fn(match_id), self.hash_at(match_id), dist)
                     )
@@ -182,7 +195,7 @@ class CLIPHashIndex(ABC):
         self,
         queries: t.Sequence[str],
         threshhold: int,
-    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, int]]]:
         """
         Search method that return a mapping from query_str =>  (id, hash, distance)
 
@@ -192,7 +205,7 @@ class CLIPHashIndex(ABC):
         e.g.
         result = {
             "000000000000000000000000000000000000000000000000000000000000FFFF": [
-                (12345678901, "00000000000000000000000000000000000000000000000000000000FFFFFFFF", 16.0)
+                (12345678901, "00000000000000000000000000000000000000000000000000000000FFFFFFFF", 16)
             ]
         }
         """
@@ -218,9 +231,7 @@ class CLIPHashIndex(ABC):
             distances = [idx for idx in similarities[limits[i] : limits[i + 1]]]
             for match, distance in zip(matches, distances):
                 # (Id, Hash, Distance)
-                # Convert numpy types to Python native types for JSON serialization
-                if hasattr(distance, "item"):
-                    distance = distance.item()
+                distance = _to_python_int(distance)
                 match_tuples.append((output_fn(match), self.hash_at(match), distance))
             result[query] = match_tuples
         return result
@@ -380,9 +391,7 @@ class CLIPMultiHashIndex(CLIPHashIndex):
 
 
 class CLIPFloatVectorIndex(CLIPFloatIndex):
-    """
-    FAISS index for float CLIP vectors using IndexFlatIP for cosine similarity.
-    """
+    """FAISS float vector index using IndexFlatIP for cosine similarity. Returns similarity as float."""
 
     def __init__(
         self,
@@ -432,7 +441,7 @@ class CLIPFloatVectorIndex(CLIPFloatIndex):
             for j in range(k):
                 idx = indices[i][j]
                 if idx >= 0:
-                    similarity = float(similarities[i][j])
+                    similarity = _to_python_float(similarities[i][j])
                     vector = self.id_to_vector[idx]
                     vector_hex = binascii.hexlify(vector.tobytes()).decode()
                     matches.append((int(idx), vector_hex, similarity))
@@ -463,7 +472,7 @@ class CLIPFloatVectorIndex(CLIPFloatIndex):
             end_idx = lims[i + 1]
             for j in range(start_idx, end_idx):
                 idx = int(indices[j])
-                similarity = float(similarities[j])
+                similarity = _to_python_float(similarities[j])
                 if similarity >= threshold:
                     vector = self.id_to_vector[idx]
                     vector_hex = binascii.hexlify(vector.tobytes()).decode()

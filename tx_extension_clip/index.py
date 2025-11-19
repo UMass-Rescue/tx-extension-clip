@@ -33,9 +33,7 @@ CLIPFloatIndexMatch = IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, I
 
 
 class CLIPIndex(SignalTypeIndex[IndexT]):
-    """
-    Wrapper around the CLIP faiss index lib using CLIPMultiHashIndex
-    """
+    """Binary hash index wrapper using CLIPMultiHashIndex. Returns Hamming distance as int."""
 
     @classmethod
     def get_match_threshold(cls):
@@ -81,14 +79,16 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
         return self._process_query_results(results)
 
     def _process_query_results(
-        self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
+        self, results: t.Dict[str, t.List[t.Tuple[int, str, int]]]
     ) -> t.List[CLIPIndexMatch[IndexT]]:
+        """Process results from binary hash matcher (Hamming distances as int)."""
         matches = []
         for result_list in results.values():
             for id, _, distance in result_list:
+                # distance is already Python int from matcher
                 matches.append(
                     IndexMatchUntyped(
-                        SignalSimilarityInfoWithIntDistance(int(distance)),
+                        SignalSimilarityInfoWithIntDistance(distance),
                         self.local_id_to_entry[id][1],
                     )
                 )
@@ -109,12 +109,7 @@ class CLIPIndex(SignalTypeIndex[IndexT]):
 
 
 class CLIPFlatIndex(CLIPIndex):
-    """
-    Wrapper around the clip faiss index lib
-    that uses CLIPFlatHashIndex instead of CLIPMultiHashIndex
-    It also uses a high match threshold to increase recall
-    possibly as the cost of precision.
-    """
+    """Binary hash index wrapper using CLIPFlatHashIndex with higher threshold. Returns Hamming distance as int."""
 
     @classmethod
     def get_match_threshold(cls):
@@ -126,9 +121,7 @@ class CLIPFlatIndex(CLIPIndex):
 
 
 class CLIPFloatIndex(SignalTypeIndex[IndexT]):
-    """
-    Wrapper around CLIPIndexFlatIP for float vector cosine similarity.
-    """
+    """Float vector index wrapper using CLIPFloatVectorIndex. Returns cosine distance as float."""
 
     @classmethod
     def get_match_threshold(cls) -> float:
@@ -169,10 +162,12 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
     def _process_query_results(
         self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
     ) -> t.List[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+        """Process results from float vector matcher (cosine similarity as float)."""
         matches = []
         for hash, result_list in results.items():
             for id, _, similarity in result_list:
-                distance = 1.0 - similarity
+                # Convert similarity to distance; similarity is already Python float from matcher
+                distance = float(1.0 - similarity)
                 matches.append(
                     IndexMatchUntyped(
                         SignalSimilarityInfoWithFloatDistance(distance),

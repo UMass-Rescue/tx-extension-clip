@@ -3,14 +3,17 @@ CLIP Signal Type.
 """
 
 import binascii
+import io
 import typing as t
 
 import numpy as np
+from PIL import Image
 from threatexchange.content_type.content_base import ContentType
 from threatexchange.content_type.photo import PhotoContent
 from threatexchange.signal_type import signal_base
 
 from tx_extension_clip.config import (
+    BITS_IN_CLIP,
     CLIP_DISTANCE_THRESHOLD,
     CLIP_FLOAT_DISTANCE_THRESHOLD,
     CLIP_HASHER,
@@ -105,8 +108,8 @@ class CLIPFloatSignal(
 
     @classmethod
     def validate_signal_str(cls, signal_str: str) -> str:
-        """Validate hex-encoded float32 vector (512 floats = 4096 hex chars)."""
-        expected_length = 512 * 4 * 2
+        """Validate hex-encoded float32 vector."""
+        expected_length = BITS_IN_CLIP * 4 * 2  # dimension * bytes_per_float32 * hex_chars_per_byte
         if len(signal_str) != expected_length:
             raise ValueError(
                 f"CLIP float vectors must be {expected_length} hex characters long. "
@@ -121,9 +124,6 @@ class CLIPFloatSignal(
     @classmethod
     def hash_from_bytes(cls, bytes_: bytes) -> str:
         """Generate CLIP float vector from image bytes."""
-        from PIL import Image
-        import io
-        
         image = Image.open(io.BytesIO(bytes_))
         vectors = CLIP_HASHER.get_float_vector_strs_from_image_list([image])
         return vectors[0]

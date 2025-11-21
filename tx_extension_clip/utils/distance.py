@@ -3,7 +3,14 @@ from scipy import spatial
 
 
 def similarity_to_distance(similarity: float) -> float:
+    """Converts a cosinesimilarity score to a distance metric.
+
+    Parameters:
+        similarity (float): Similarity value, typically in the range [-1.0, 1.0].
     
+    Returns:
+        float: Distance value.
+    """
     return float(1.0 - similarity)
 
 

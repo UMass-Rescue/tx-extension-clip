@@ -224,7 +224,7 @@ class CLIPHasher:
         if self.normalized:
             image_features = torch.nn.functional.normalize(image_features, dim=1)
         
-        return image_features.numpy()
+        return image_features.numpy().astype(np.float32)
 
     def get_float_vector_strs_from_image_list(self, images: List[Image.Image]) -> List[str]:
         """Returns serialized float CLIP vectors from a list of PIL Image objects.

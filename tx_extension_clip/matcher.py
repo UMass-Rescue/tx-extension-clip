@@ -26,7 +26,7 @@ def _to_python_float(value: t.Any) -> float:
     return float(value)
 
 
-class CLIPFloatIndex(ABC):
+class CLIPFloatHashIndex(ABC):
     """Abstract base class for CLIP float vector indices. Uses cosine similarity (returns float)."""
 
     @abstractmethod
@@ -392,7 +392,7 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         self.__construct_index_rev_map()
 
 
-class CLIPFloatVectorIndex(CLIPFloatIndex):
+class CLIPFloatVectorIndex(CLIPFloatHashIndex):
     """FAISS float vector index using IndexFlatIP for cosine similarity. 
     
     Requires normalized vectors (IndexFlatIP computes inner product = cosine similarity only for normalized vectors).

@@ -482,10 +482,9 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
             return {}
         
         # Convert max distance to min similarity: distance = 1.0 - similarity
+        # Add small tolerance to account for floating point precision
         similarity_threshold = 1.0 - threshold
-        
-        # For threshold = 0.0, add small epsilon to handle floating point precision
-        epsilon = 1e-5 if threshold == 0.0 else 0.0
+        epsilon = 1e-5
         faiss_threshold = similarity_threshold - epsilon
         
         query_vectors = [
@@ -504,12 +503,10 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
             for j in range(start_idx, end_idx):
                 idx = int(indices[j])
                 similarity = _to_python_float(similarities[j])
-                if similarity >= (similarity_threshold - epsilon):
-                    distance = similarity_to_distance(similarity)
-                    if distance <= threshold or (threshold == 0.0 and numpy.isclose(distance, 0.0, atol=1e-5)):
-                        vector = self.id_to_vector[idx]
-                        vector_hex = binascii.hexlify(vector.tobytes()).decode()
-                        matches.append((idx, vector_hex, distance))
+                distance = similarity_to_distance(similarity)
+                vector = self.id_to_vector[idx]
+                vector_hex = binascii.hexlify(vector.tobytes()).decode()
+                matches.append((idx, vector_hex, distance))
             result[query] = matches
         
         return result

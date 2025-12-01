@@ -7,11 +7,70 @@ import numpy
 
 from tx_extension_clip.config import BITS_IN_CLIP
 from tx_extension_clip.utils.uint import int64_to_uint64, uint64_to_int64
+from tx_extension_clip.utils.distance import similarity_to_distance
 
 CLIP_HASH_TYPE = t.Union[str, bytes]
 
 
+def _to_python_int(value: t.Any) -> int:
+    """Convert numpy integer types to Python int (for Hamming distances)."""
+    if hasattr(value, "item"):
+        return int(value.item())
+    return int(value)
+
+
+def _to_python_float(value: t.Any) -> float:
+    """Convert numpy float types to Python float (for cosine similarity/distance)."""
+    if hasattr(value, "item"):
+        return float(value.item())
+    return float(value)
+
+
+class CLIPFloatHashIndex(ABC):
+    """Abstract base class for CLIP float vector indices. Uses cosine similarity (returns float)."""
+
+    @abstractmethod
+    def __init__(
+        self,
+        vectors: t.Iterable[t.Tuple[str, int]] = (),
+        dimension: int = 512,
+    ):
+        pass
+
+    @abstractmethod
+    def add(self, vectors: t.Iterable[t.Tuple[str, int]]):
+        pass
+
+    @abstractmethod
+    def search_top_k(
+        self,
+        queries: t.Sequence[str],
+        k: int,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        """Returns (id, vector_hex, distance) tuples."""
+        pass
+
+    @abstractmethod
+    def search_threshold(
+        self,
+        queries: t.Sequence[str],
+        threshold: float,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        """Returns (id, vector_hex, distance) tuples where distance <= threshold."""
+        pass
+
+    @abstractmethod
+    def vector_at(self, idx: int) -> numpy.ndarray:
+        pass
+
+    @abstractmethod
+    def __len__(self) -> int:
+        pass
+
+
 class CLIPHashIndex(ABC):
+    """Abstract base class for binary CLIP hash indices. Uses Hamming distance (returns int)."""
+    
     @abstractmethod
     def __init__(self, faiss_index: faiss.IndexBinary) -> None:
         self.faiss_index = faiss_index
@@ -89,7 +148,7 @@ class CLIPHashIndex(ABC):
         self,
         queries: t.Sequence[CLIP_HASH_TYPE],
         k: int,
-    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, int]]]:
         """
         Search method that returns a mapping from query_str => (id, hash, distance) for the top k matches.
         It progressively increases the search breadth (`nflip`) to ensure k matches are found.
@@ -126,7 +185,7 @@ class CLIPHashIndex(ABC):
                     match_id = I[0][j]
                     if match_id < 0:
                         continue
-                    dist = distances[0][j]
+                    dist = _to_python_int(distances[0][j])
                     match_tuples.append(
                         (output_fn(match_id), self.hash_at(match_id), dist)
                     )
@@ -138,7 +197,7 @@ class CLIPHashIndex(ABC):
         self,
         queries: t.Sequence[str],
         threshhold: int,
-    ) -> t.Dict[str, t.List[t.Tuple[int, str, numpy.float32]]]:
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, int]]]:
         """
         Search method that return a mapping from query_str =>  (id, hash, distance)
 
@@ -148,7 +207,7 @@ class CLIPHashIndex(ABC):
         e.g.
         result = {
             "000000000000000000000000000000000000000000000000000000000000FFFF": [
-                (12345678901, "00000000000000000000000000000000000000000000000000000000FFFFFFFF", 16.0)
+                (12345678901, "00000000000000000000000000000000000000000000000000000000FFFFFFFF", 16)
             ]
         }
         """
@@ -174,6 +233,7 @@ class CLIPHashIndex(ABC):
             distances = [idx for idx in similarities[limits[i] : limits[i + 1]]]
             for match, distance in zip(matches, distances):
                 # (Id, Hash, Distance)
+                distance = _to_python_int(distance)
                 match_tuples.append((output_fn(match), self.hash_at(match), distance))
             result[query] = match_tuples
         return result
@@ -330,3 +390,142 @@ class CLIPMultiHashIndex(CLIPHashIndex):
     def __setstate__(self, data):
         super().__setstate__(data)
         self.__construct_index_rev_map()
+
+
+class CLIPFloatVectorIndex(CLIPFloatHashIndex):
+    """FAISS float vector index using IndexFlatIP for cosine similarity. 
+    
+    Requires normalized vectors (IndexFlatIP computes inner product = cosine similarity only for normalized vectors).
+    Normalization is verified when adding vectors to the index.
+    """
+
+    def __init__(
+        self,
+        vectors: t.Iterable[t.Tuple[str, int]] = (),
+        dimension: int = 512,
+    ):
+        self.dimension = dimension
+        self.faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
+        self.id_to_vector: t.Dict[int, numpy.ndarray] = {}
+        self.add(vectors)
+
+    def add(self, vectors: t.Iterable[t.Tuple[str, int]]):
+        """Adds normalized vectors to the index (required for IndexFlatIP cosine similarity)."""
+        vector_list = []
+        id_list = []
+        for vec_str, custom_id in vectors:
+            vec = numpy.frombuffer(binascii.unhexlify(vec_str), dtype=numpy.float32)
+            # Verify vectors are normalized (IndexFlatIP requires normalized vectors for cosine similarity)
+            norm = numpy.linalg.norm(vec)
+            if not numpy.isclose(norm, 1.0, rtol=1e-5):
+                raise ValueError(f"Vector must be normalized for cosine similarity (norm={norm})")
+            vector_list.append(vec)
+            id_list.append(custom_id)
+            self.id_to_vector[custom_id] = vec
+
+        if not vector_list:
+            return
+
+        vectors_array = numpy.array(vector_list, dtype=numpy.float32)
+        ids_array = numpy.array(id_list, dtype=numpy.int64)
+
+        self.faiss_index.add_with_ids(vectors_array, ids_array)
+
+    def search_top_k(
+        self,
+        queries: t.Sequence[str],
+        k: int,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        """Search for top k matches. Assumes query vectors are normalized.
+        
+        Returns (id, vector_hex, distance) tuples where distance is cosine distance
+        in range [0, 2]. For normalized vectors, IndexFlatIP returns cosine similarity
+        in range [-1, 1], which we convert to distance = 1.0 - similarity.
+        """
+        if len(queries) == 0:
+            return {}
+        
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
+        ]
+        queries_array = numpy.array(query_vectors, dtype=numpy.float32)
+        similarities, indices = self.faiss_index.search(queries_array, k)
+        
+        result = {}
+        for i, query in enumerate(queries):
+            matches = []
+            for j in range(k):
+                idx = indices[i][j]
+                if idx >= 0:
+                    similarity = _to_python_float(similarities[i][j])
+                    # Convert similarity to distance using common utility function
+                    # For cosine similarity in [-1, 1], distance ranges from [0, 2]
+                    distance = similarity_to_distance(similarity)
+                    vector = self.id_to_vector[idx]
+                    vector_hex = binascii.hexlify(vector.tobytes()).decode()
+                    matches.append((int(idx), vector_hex, distance))
+            result[query] = matches
+        
+        return result
+
+    def search_threshold(
+        self,
+        queries: t.Sequence[str],
+        threshold: float,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        """Search within distance threshold. Assumes query vectors are normalized.
+        
+        Args:
+            threshold: Maximum distance. Returns items with distance <= threshold.
+        """
+        if len(queries) == 0:
+            return {}
+        
+        # Convert max distance to min similarity: distance = 1.0 - similarity
+        # Add small tolerance to account for floating point precision
+        similarity_threshold = 1.0 - threshold
+        epsilon = 1e-5
+        faiss_threshold = similarity_threshold - epsilon
+        
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
+        ]
+        queries_array = numpy.array(query_vectors, dtype=numpy.float32)
+        lims, similarities, indices = self.faiss_index.range_search(
+            queries_array, faiss_threshold
+        )
+
+        result = {}
+        for i, query in enumerate(queries):
+            matches = []
+            start_idx = lims[i]
+            end_idx = lims[i + 1]
+            for j in range(start_idx, end_idx):
+                idx = int(indices[j])
+                similarity = _to_python_float(similarities[j])
+                distance = similarity_to_distance(similarity)
+                vector = self.id_to_vector[idx]
+                vector_hex = binascii.hexlify(vector.tobytes()).decode()
+                matches.append((idx, vector_hex, distance))
+            result[query] = matches
+        
+        return result
+
+    def vector_at(self, idx: int) -> numpy.ndarray:
+        return self.id_to_vector[idx]
+
+    def __len__(self) -> int:
+        return self.faiss_index.ntotal
+
+    def __getstate__(self):
+        faiss_data = faiss.serialize_index(self.faiss_index)
+        return {
+            'dimension': self.dimension,
+            'faiss_data': faiss_data,
+            'id_to_vector': self.id_to_vector,
+        }
+
+    def __setstate__(self, state):
+        self.dimension = state['dimension']
+        self.faiss_index = faiss.deserialize_index(state['faiss_data'])
+        self.id_to_vector = state['id_to_vector']

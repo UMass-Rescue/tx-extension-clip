@@ -3,16 +3,23 @@ CLIP Signal Type.
 """
 
 import binascii
+import io
 import typing as t
 
 import numpy as np
+from PIL import Image
 from threatexchange.content_type.content_base import ContentType
 from threatexchange.content_type.photo import PhotoContent
 from threatexchange.signal_type import signal_base
 
-from tx_extension_clip.config import CLIP_DISTANCE_THRESHOLD, CLIP_HASHER
-from tx_extension_clip.index import CLIPIndex
-from tx_extension_clip.utils.distance import hamming_distance
+from tx_extension_clip.config import (
+    BITS_IN_CLIP,
+    CLIP_DISTANCE_THRESHOLD,
+    CLIP_FLOAT_DISTANCE_THRESHOLD,
+    CLIP_HASHER,
+)
+from tx_extension_clip.index import CLIPFloatIndex, CLIPIndex
+from tx_extension_clip.utils.distance import cosine_distance, hamming_distance
 
 class CLIPSignal(
     signal_base.SignalType,
@@ -78,3 +85,59 @@ class CLIPSignal(
 
 class TrivialCLIPIndex(signal_base.TrivialLinearSearchHashIndex):
     _SIGNAL_TYPE = CLIPSignal
+
+
+class CLIPFloatSignal(
+    signal_base.SignalType,
+    signal_base.BytesHasher,
+):
+    """
+    CLIP signal using float32 vectors and cosine similarity.
+    Higher precision than binary quantization at cost of memory.
+    """
+
+    INDICATOR_TYPE: str = "HASH_CLIP_FLOAT"
+
+    @classmethod
+    def get_content_types(cls) -> t.List[t.Type[ContentType]]:
+        return [PhotoContent]
+
+    @classmethod
+    def get_index_cls(cls) -> t.Type[CLIPFloatIndex]:
+        return CLIPFloatIndex
+
+    @classmethod
+    def validate_signal_str(cls, signal_str: str) -> str:
+        """Validate hex-encoded float32 vector."""
+        expected_length = BITS_IN_CLIP * 4 * 2  # dimension * bytes_per_float32 * hex_chars_per_byte
+        if len(signal_str) != expected_length:
+            raise ValueError(
+                f"CLIP float vectors must be {expected_length} hex characters long. "
+                f"Got {len(signal_str)}"
+            )
+        try:
+            binascii.unhexlify(signal_str)
+        except (binascii.Error, ValueError) as e:
+            raise ValueError(f"Invalid hex string: {e}")
+        return signal_str
+
+    @classmethod
+    def hash_from_bytes(cls, bytes_: bytes) -> str:
+        """Generate CLIP float vector from image bytes."""
+        image = Image.open(io.BytesIO(bytes_))
+        vectors = CLIP_HASHER.get_float_vector_strs_from_image_list([image])
+        return vectors[0]
+
+    @classmethod
+    def compare_hash(
+        cls, hash1: str, hash2: str, threshold: float = CLIP_FLOAT_DISTANCE_THRESHOLD
+    ) -> signal_base.SignalComparisonResult:
+        """Compare CLIP float vectors using cosine distance."""
+        vec1 = np.frombuffer(binascii.unhexlify(hash1), dtype=np.float32)
+        vec2 = np.frombuffer(binascii.unhexlify(hash2), dtype=np.float32)
+        distance = cosine_distance(vec1, vec2)
+        return signal_base.SignalComparisonResult.from_simple_dist(distance, threshold)
+
+    @staticmethod
+    def get_examples() -> t.List[str]:
+        return []

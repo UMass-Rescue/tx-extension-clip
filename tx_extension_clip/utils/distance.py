@@ -2,16 +2,44 @@ import numpy as np
 from scipy import spatial
 
 
+def similarity_to_distance(similarity: float) -> float:
+    """Converts a cosinesimilarity score to a distance metric.
+
+    Parameters:
+        similarity (float): Similarity value, typically in the range [-1.0, 1.0].
+    
+    Returns:
+        float: Distance value.
+    """
+    return float(1.0 - similarity)
+
+
 def cosine_distance(vector_a: np.ndarray, vector_b: np.ndarray) -> float:
     """
-    Returns the cosine distance of two vectors.
-    Args:
-        vector_a (np.ndarray): A vector of floats
-        vector_b (np.ndarray): A vector of floats
-    Returns:
-        (float) The cosine distance of the two vectors.
+    Returns cosine distance between two vectors, handling edge cases for zero vectors.
+    
+    For normalized vectors, cosine distance ranges from [0, 2]:
+    - 0.0 = identical vectors (cosine similarity = 1.0)
+    - 1.0 = orthogonal vectors (cosine similarity = 0.0)
+    - 2.0 = opposite vectors (cosine similarity = -1.0)
+    
+    Uses scipy's cosine distance which returns 1 - cosine_similarity.
+    For normalized vectors, this gives the full range [0, 2].
     """
-    return spatial.distance.cosine(vector_a, vector_b)
+    a_is_zero = np.allclose(vector_a, 0, rtol=1e-9, atol=1e-9)
+    b_is_zero = np.allclose(vector_b, 0, rtol=1e-9, atol=1e-9)
+    
+    if a_is_zero and b_is_zero:
+        return 0.0
+    elif a_is_zero or b_is_zero:
+        return 1.0
+    
+    distance = spatial.distance.cosine(vector_a, vector_b)
+    
+    if np.isnan(distance):
+        distance = 1.0
+    
+    return float(distance)
 
 
 def hamming_distance(hash1: bytes, hash2: bytes) -> int:

@@ -18,7 +18,7 @@ from tx_extension_clip.config import (
     CLIP_FLOAT_DISTANCE_THRESHOLD,
     CLIP_HASHER,
 )
-from tx_extension_clip.index import CLIPFloatIndex, CLIPIndex
+from tx_extension_clip.index import CLIPFloatIndex, CLIPIndex, CLIPHNSWIndex
 from tx_extension_clip.utils.distance import cosine_distance, hamming_distance
 
 class CLIPSignal(
@@ -141,3 +141,16 @@ class CLIPFloatSignal(
     @staticmethod
     def get_examples() -> t.List[str]:
         return []
+
+
+class CLIPHNSWSignal(CLIPFloatSignal):
+    """
+    CLIP signal using float32 vectors with HNSW approximate search.
+    Provides fast approximate nearest neighbor search for large-scale datasets.
+    """
+
+    INDICATOR_TYPE: str = "HASH_CLIP_HNSW"
+
+    @classmethod
+    def get_index_cls(cls) -> t.Type[CLIPHNSWIndex]:
+        return CLIPHNSWIndex

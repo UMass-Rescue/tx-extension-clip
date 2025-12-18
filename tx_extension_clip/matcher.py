@@ -5,7 +5,12 @@ from abc import ABC, abstractmethod
 import faiss
 import numpy
 
-from tx_extension_clip.config import BITS_IN_CLIP
+from tx_extension_clip.config import (
+    BITS_IN_CLIP,
+    CLIP_HNSW_M,
+    CLIP_HNSW_EF_CONSTRUCTION,
+    CLIP_HNSW_EF_SEARCH,
+)
 from tx_extension_clip.utils.uint import int64_to_uint64, uint64_to_int64
 from tx_extension_clip.utils.distance import similarity_to_distance
 
@@ -481,8 +486,6 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
         if len(queries) == 0:
             return {}
         
-        # Convert max distance to min similarity: distance = 1.0 - similarity
-        # Add small tolerance to account for floating point precision
         similarity_threshold = 1.0 - threshold
         epsilon = 1e-5
         faiss_threshold = similarity_threshold - epsilon
@@ -529,3 +532,174 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
         self.dimension = state['dimension']
         self.faiss_index = faiss.deserialize_index(state['faiss_data'])
         self.id_to_vector = state['id_to_vector']
+
+
+class CLIPHNSWVectorIndex(CLIPFloatHashIndex):
+    """FAISS HNSW index for approximate nearest neighbor search with cosine similarity.
+    
+    HNSW (Hierarchical Navigable Small World) provides faster search than flat index
+    with configurable accuracy trade-offs. Uses IndexHNSWFlat which combines HNSW graph
+    with flat storage for exact distance computation.
+    
+    Requires normalized vectors for cosine similarity (inner product = cosine for normalized vectors).
+    
+    Parameters:
+        M: Number of connections per layer (default 32, higher = better accuracy, more memory)
+        ef_construction: Size of candidate list during construction (default 200, higher = better quality, slower build)
+        ef_search: Size of candidate list during search (default 128, higher = better recall, slower search)
+    """
+
+    def __init__(
+        self,
+        vectors: t.Iterable[t.Tuple[str, int]] = (),
+        dimension: int = 512,
+        M: int = CLIP_HNSW_M,
+        ef_construction: int = CLIP_HNSW_EF_CONSTRUCTION,
+        ef_search: int = CLIP_HNSW_EF_SEARCH,
+    ):
+        self.dimension = dimension
+        self.M = M
+        self.ef_construction = ef_construction
+        self.ef_search = ef_search
+        
+        # Create HNSW index with flat storage
+        # IndexHNSWFlat = HNSW graph + flat storage for vectors
+        hnsw_index = faiss.IndexHNSWFlat(dimension, M)
+        hnsw_index.hnsw.efConstruction = ef_construction
+        hnsw_index.hnsw.efSearch = ef_search
+        
+        # Wrap with IDMap2 to support custom IDs
+        self.faiss_index = faiss.IndexIDMap2(hnsw_index)
+        self.id_to_vector: t.Dict[int, numpy.ndarray] = {}
+        
+        self.add(vectors)
+
+    def add(self, vectors: t.Iterable[t.Tuple[str, int]]):
+        """Adds normalized vectors to the index (required for cosine similarity)."""
+        vector_list = []
+        id_list = []
+        for vec_str, custom_id in vectors:
+            vec = numpy.frombuffer(binascii.unhexlify(vec_str), dtype=numpy.float32)
+            # Verify vectors are normalized (required for cosine similarity)
+            norm = numpy.linalg.norm(vec)
+            if not numpy.isclose(norm, 1.0, rtol=1e-5):
+                raise ValueError(f"Vector must be normalized for cosine similarity (norm={norm})")
+            vector_list.append(vec)
+            id_list.append(custom_id)
+            self.id_to_vector[custom_id] = vec
+
+        if not vector_list:
+            return
+
+        vectors_array = numpy.array(vector_list, dtype=numpy.float32)
+        ids_array = numpy.array(id_list, dtype=numpy.int64)
+
+        self.faiss_index.add_with_ids(vectors_array, ids_array)
+
+    def search_top_k(
+        self,
+        queries: t.Sequence[str],
+        k: int,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        """Approximate search for top k matches using HNSW.
+        
+        Returns (id, vector_hex, distance) tuples where distance is cosine distance
+        in range [0, 2]. For normalized vectors, IndexHNSWFlat returns cosine similarity
+        in range [-1, 1], which we convert to distance = 1.0 - similarity.
+        """
+        if len(queries) == 0:
+            return {}
+        
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
+        ]
+        queries_array = numpy.array(query_vectors, dtype=numpy.float32)
+        similarities, indices = self.faiss_index.search(queries_array, k)
+        
+        result = {}
+        for i, query in enumerate(queries):
+            matches = []
+            for j in range(k):
+                idx = indices[i][j]
+                if idx >= 0:
+                    similarity = _to_python_float(similarities[i][j])
+                    # Convert similarity to distance
+                    distance = similarity_to_distance(similarity)
+                    vector = self.id_to_vector[idx]
+                    vector_hex = binascii.hexlify(vector.tobytes()).decode()
+                    matches.append((int(idx), vector_hex, distance))
+            result[query] = matches
+        
+        return result
+
+    def search_threshold(
+        self,
+        queries: t.Sequence[str],
+        threshold: float,
+    ) -> t.Dict[str, t.List[t.Tuple[int, str, float]]]:
+        """Approximate search within distance threshold using HNSW's range_search.
+        
+        Args:
+            threshold: Maximum distance. Returns items with distance <= threshold.
+        """
+        if len(queries) == 0:
+            return {}
+        
+        similarity_threshold = 1.0 - threshold
+        epsilon = 1e-5
+        faiss_threshold = similarity_threshold - epsilon
+        
+        query_vectors = [
+            numpy.frombuffer(binascii.unhexlify(q), dtype=numpy.float32) for q in queries
+        ]
+        queries_array = numpy.array(query_vectors, dtype=numpy.float32)
+        lims, similarities, indices = self.faiss_index.range_search(
+            queries_array, faiss_threshold
+        )
+
+        result = {}
+        for i, query in enumerate(queries):
+            matches = []
+            start_idx = lims[i]
+            end_idx = lims[i + 1]
+            for j in range(start_idx, end_idx):
+                idx = int(indices[j])
+                similarity = _to_python_float(similarities[j])
+                distance = similarity_to_distance(similarity)
+                vector = self.id_to_vector[idx]
+                vector_hex = binascii.hexlify(vector.tobytes()).decode()
+                matches.append((idx, vector_hex, distance))
+            result[query] = matches
+        
+        return result
+
+    def vector_at(self, idx: int) -> numpy.ndarray:
+        return self.id_to_vector[idx]
+
+    def __len__(self) -> int:
+        return self.faiss_index.ntotal
+
+    def __getstate__(self):
+        faiss_data = faiss.serialize_index(self.faiss_index)
+        return {
+            'dimension': self.dimension,
+            'M': self.M,
+            'ef_construction': self.ef_construction,
+            'ef_search': self.ef_search,
+            'faiss_data': faiss_data,
+            'id_to_vector': self.id_to_vector,
+        }
+
+    def __setstate__(self, state):
+        self.dimension = state['dimension']
+        self.M = state['M']
+        self.ef_construction = state['ef_construction']
+        self.ef_search = state['ef_search']
+        self.faiss_index = faiss.deserialize_index(state['faiss_data'])
+        self.id_to_vector = state['id_to_vector']
+        
+        # Restore ef_search parameter after deserialization
+        if hasattr(self.faiss_index, 'index'):
+            hnsw_index = self.faiss_index.index
+            if hasattr(hnsw_index, 'hnsw'):
+                hnsw_index.hnsw.efSearch = self.ef_search

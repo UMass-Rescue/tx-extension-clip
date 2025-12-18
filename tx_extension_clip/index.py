@@ -20,11 +20,15 @@ from tx_extension_clip.config import (
     CLIP_FLAT_HASH_MATCH_THRESHOLD,
     CLIP_FLOAT_SIMILARITY_THRESHOLD,
     CLIP_MULTI_HASH_MATCH_THRESHOLD,
+    CLIP_HNSW_M,
+    CLIP_HNSW_EF_CONSTRUCTION,
+    CLIP_HNSW_EF_SEARCH,
 )
 from tx_extension_clip.matcher import (
     CLIPFlatHashIndex,
     CLIPHashIndex,
     CLIPFloatVectorIndex,
+    CLIPHNSWVectorIndex,
     CLIPMultiHashIndex,
 )
 
@@ -162,6 +166,102 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
         self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
     ) -> t.List[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
         """Process results from float vector matcher (returns distance)."""
+        matches = []
+        for hash, result_list in results.items():
+            for id, _, distance in result_list:
+                matches.append(
+                    IndexMatchUntyped(
+                        SignalSimilarityInfoWithFloatDistance(distance),
+                        self.local_id_to_entry[id][1],
+                    )
+                )
+        return matches
+
+    def add(self, signal_str: str, entry: IndexT) -> None:
+        self.add_all(((signal_str, entry),))
+
+    def add_all(self, entries: t.Iterable[t.Tuple[str, IndexT]]) -> None:
+        start = len(self)
+        entry_list = list(entries)
+        if not entry_list:
+            return
+        self.local_id_to_entry.extend(entry_list)
+        self.index.add(
+            [(s, i + start) for i, (s, _) in enumerate(entry_list)],
+        )
+
+
+class CLIPHNSWIndex(SignalTypeIndex[IndexT]):
+    """HNSW approximate vector index wrapper using CLIPHNSWVectorIndex. Returns cosine distance as float.
+    
+    HNSW (Hierarchical Navigable Small World) provides fast approximate nearest neighbor search,
+    suitable for large-scale datasets where exact search becomes too slow.
+    
+    Trade-offs:
+    - Much faster search than CLIPFloatIndex (especially for large datasets)
+    - Slightly less accurate (approximate results)
+    - Uses more memory due to HNSW graph structure
+    - Configurable accuracy/speed trade-offs via M, ef_construction, and ef_search parameters
+    """
+
+    @classmethod
+    def get_match_threshold(cls) -> float:
+        return CLIP_FLOAT_SIMILARITY_THRESHOLD
+
+    def __init__(
+        self,
+        entries: t.Iterable[t.Tuple[str, IndexT]] = (),
+        M: int = CLIP_HNSW_M,
+        ef_construction: int = CLIP_HNSW_EF_CONSTRUCTION,
+        ef_search: int = CLIP_HNSW_EF_SEARCH,
+    ) -> None:
+        """
+        Initialize HNSW index with configurable parameters.
+        
+        Args:
+            entries: Initial entries to add to the index
+            M: Number of connections per layer (default 32, higher = better accuracy, more memory)
+            ef_construction: Size of candidate list during construction (default 200, higher = better quality, slower build)
+            ef_search: Size of candidate list during search (default 128, higher = better recall, slower search)
+        """
+        super().__init__()
+        self.local_id_to_entry: t.List[t.Tuple[str, IndexT]] = list(entries)
+        self.index: CLIPHNSWVectorIndex = CLIPHNSWVectorIndex(
+            vectors=[(s, i) for i, (s, _) in enumerate(self.local_id_to_entry)],
+            dimension=BITS_IN_CLIP,
+            M=M,
+            ef_construction=ef_construction,
+            ef_search=ef_search,
+        )
+
+    def __len__(self) -> int:
+        return len(self.local_id_to_entry)
+
+    def query(
+        self, hash: str
+    ) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+        return self.query_threshold(hash)
+
+    def query_top_k(
+        self, hash: str, k: int
+    ) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+        """Find the approximate top k closest matches to a given hash using HNSW."""
+        results = self.index.search_top_k([hash], k)
+        return self._process_query_results(results)
+
+    def query_threshold(
+        self, hash: str, threshold: t.Optional[float] = None
+    ) -> t.Sequence[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+        """Find approximate matches within a given similarity threshold using HNSW."""
+        if threshold is None:
+            threshold = self.get_match_threshold()
+        results = self.index.search_threshold([hash], threshold)
+        return self._process_query_results(results)
+
+    def _process_query_results(
+        self, results: t.Dict[str, t.List[t.Tuple[int, str, float]]]
+    ) -> t.List[IndexMatchUntyped[SignalSimilarityInfoWithFloatDistance, IndexT]]:
+        """Process results from HNSW vector matcher (returns distance)."""
         matches = []
         for hash, result_list in results.items():
             for id, _, distance in result_list:

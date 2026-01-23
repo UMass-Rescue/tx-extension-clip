@@ -540,6 +540,7 @@ class CLIPFloatVectorIndex(CLIPVectorIndexBase):
         vectors: t.Iterable[t.Tuple[str, int]] = (),
         dimension: int = 512,
     ):
+        print("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorIndex (exact/flat search)")
         faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
         super().__init__(vectors, dimension, faiss_index)
 
@@ -578,6 +579,7 @@ class CLIPHNSWVectorIndex(CLIPVectorIndexBase):
         ef_construction: int = CLIP_HNSW_EF_CONSTRUCTION,
         ef_search: int = CLIP_HNSW_EF_SEARCH,
     ):
+        print(f"CLIP_MATCHER_INDEX_TYPE: CLIPHNSWVectorIndex (approximate/hnsw search, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
         self.M = M
         self.ef_construction = ef_construction
         self.ef_search = ef_search

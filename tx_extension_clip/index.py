@@ -211,6 +211,7 @@ class CLIPFloatIndex(CLIPVectorIndexBase):
             dimension=BITS_IN_CLIP,
         )
         super().__init__(entry_list, vector_index)
+        print("CLIP_SIGNAL_INDEX_TYPE: CLIPFloatIndex (exact/flat search wrapper)")
 
 
 class CLIPHNSWIndex(CLIPVectorIndexBase):
@@ -251,3 +252,4 @@ class CLIPHNSWIndex(CLIPVectorIndexBase):
             ef_search=ef_search,
         )
         super().__init__(entry_list, vector_index)
+        print(f"CLIP_SIGNAL_INDEX_TYPE: CLIPHNSWIndex (approximate/hnsw search wrapper, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")

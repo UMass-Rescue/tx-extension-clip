@@ -6,7 +6,8 @@ from tests.test_utils import MOCKED_MODULES
 
 patch.dict("sys.modules", MOCKED_MODULES).start()
 
-from tx_extension_clip.signal import CLIPSignal
+from tx_extension_clip.signal import CLIPSignal, CLIPFloatSignal
+from tx_extension_clip.index import CLIPFloatIndex, CLIPHNSWIndex
 
 class TestCLIPSignal(unittest.TestCase):
     def test_validate_signal_str(self):
@@ -60,6 +61,15 @@ class TestCLIPSignal(unittest.TestCase):
         result = CLIPSignal.hash_from_bytes(b'some image bytes')
         self.assertEqual(result, 'mocked_hash')
         mock_hasher.hash_from_bytes.assert_called_once_with(b'some image bytes')
+
+
+class TestCLIPFloatSignalIndexSelection(unittest.TestCase):
+    def test_default_index_cls_is_float(self):
+        self.assertIs(CLIPFloatSignal.get_index_cls(), CLIPFloatIndex)
+
+    @patch("tx_extension_clip.signal.CLIP_DISABLE_HNSW_INDEX", False)
+    def test_hnsw_index_cls_when_enabled(self, _):
+        self.assertIs(CLIPFloatSignal.get_index_cls(), CLIPHNSWIndex)
 
 
 if __name__ == '__main__':

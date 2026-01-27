@@ -7,7 +7,7 @@ from tests.test_utils import MOCKED_MODULES
 patch.dict("sys.modules", MOCKED_MODULES).start()
 
 from tx_extension_clip.signal import CLIPSignal, CLIPFloatSignal
-from tx_extension_clip.index import CLIPFloatIndex, CLIPHNSWIndex
+from tx_extension_clip.index import CLIPFloatFlatIndex, CLIPFloatHNSWIndex
 
 class TestCLIPSignal(unittest.TestCase):
     def test_validate_signal_str(self):
@@ -64,12 +64,14 @@ class TestCLIPSignal(unittest.TestCase):
 
 
 class TestCLIPFloatSignalIndexSelection(unittest.TestCase):
-    def test_default_index_cls_is_float(self):
-        self.assertIs(CLIPFloatSignal.get_index_cls(), CLIPFloatIndex)
+    def test_default_index_cls_is_hnsw(self):
+        """Test that HNSW is the default (CLIP_DISABLE_HNSW_INDEX=False by default)."""
+        self.assertIs(CLIPFloatSignal.get_index_cls(), CLIPFloatHNSWIndex)
 
-    @patch("tx_extension_clip.signal.CLIP_DISABLE_HNSW_INDEX", False)
-    def test_hnsw_index_cls_when_enabled(self, _):
-        self.assertIs(CLIPFloatSignal.get_index_cls(), CLIPHNSWIndex)
+    @patch("tx_extension_clip.signal.CLIP_DISABLE_HNSW_INDEX", True)
+    def test_flat_index_cls_when_hnsw_disabled(self):
+        """Test that Flat index is used when HNSW is disabled."""
+        self.assertIs(CLIPFloatSignal.get_index_cls(), CLIPFloatFlatIndex)
 
 
 if __name__ == '__main__':

@@ -27,8 +27,8 @@ from tx_extension_clip.config import (
 from tx_extension_clip.matcher import (
     CLIPFlatHashIndex,
     CLIPHashIndex,
-    CLIPFloatVectorIndex,
-    CLIPHNSWVectorIndex,
+    CLIPFloatVectorFlatIndex,
+    CLIPFloatVectorHNSWIndex,
     CLIPMultiHashIndex,
 )
 
@@ -123,7 +123,7 @@ class CLIPFlatIndex(CLIPIndex):
         return CLIPFlatHashIndex()
 
 
-class CLIPVectorIndexBase(SignalTypeIndex[IndexT]):
+class CLIPFloatIndexBase(SignalTypeIndex[IndexT]):
     """Base class for float vector index wrappers. Returns cosine distance as float.
     
     Provides shared implementation for both flat (exact) and HNSW (approximate) indices.
@@ -201,27 +201,27 @@ class CLIPVectorIndexBase(SignalTypeIndex[IndexT]):
         )
 
 
-class CLIPFloatIndex(CLIPVectorIndexBase):
-    """Float vector index wrapper using CLIPFloatVectorIndex for exact search."""
+class CLIPFloatFlatIndex(CLIPFloatIndexBase):
+    """Float vector index wrapper using flat (exact) search."""
 
     def __init__(self, entries: t.Iterable[t.Tuple[str, IndexT]] = ()) -> None:
         entry_list = list(entries)
-        vector_index = CLIPFloatVectorIndex(
+        vector_index = CLIPFloatVectorFlatIndex(
             vectors=[(s, i) for i, (s, _) in enumerate(entry_list)],
             dimension=BITS_IN_CLIP,
         )
         super().__init__(entry_list, vector_index)
-        print("CLIP_SIGNAL_INDEX_TYPE: CLIPFloatIndex (exact/flat search wrapper)")
+        print("CLIP_SIGNAL_INDEX_TYPE: CLIPFloatFlatIndex (exact/flat search wrapper)")
 
 
-class CLIPHNSWIndex(CLIPVectorIndexBase):
-    """HNSW approximate vector index wrapper using CLIPHNSWVectorIndex.
+class CLIPFloatHNSWIndex(CLIPFloatIndexBase):
+    """Float vector index wrapper using HNSW (approximate) search.
     
     HNSW (Hierarchical Navigable Small World) provides fast approximate nearest neighbor search,
     suitable for large-scale datasets where exact search becomes too slow.
     
     Trade-offs:
-    - Much faster search than CLIPFloatIndex (especially for large datasets)
+    - Much faster search than CLIPFloatFlatIndex (especially for large datasets)
     - Slightly less accurate (approximate results)
     - Uses more memory due to HNSW graph structure
     - Configurable accuracy/speed trade-offs via M, ef_construction, and ef_search parameters
@@ -244,7 +244,7 @@ class CLIPHNSWIndex(CLIPVectorIndexBase):
             ef_search: Size of candidate list during search (default 128, higher = better recall, slower search)
         """
         entry_list = list(entries)
-        vector_index = CLIPHNSWVectorIndex(
+        vector_index = CLIPFloatVectorHNSWIndex(
             vectors=[(s, i) for i, (s, _) in enumerate(entry_list)],
             dimension=BITS_IN_CLIP,
             M=M,
@@ -252,4 +252,4 @@ class CLIPHNSWIndex(CLIPVectorIndexBase):
             ef_search=ef_search,
         )
         super().__init__(entry_list, vector_index)
-        print(f"CLIP_SIGNAL_INDEX_TYPE: CLIPHNSWIndex (approximate/hnsw search wrapper, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
+        print(f"CLIP_SIGNAL_INDEX_TYPE: CLIPFloatHNSWIndex (approximate/hnsw search wrapper, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")

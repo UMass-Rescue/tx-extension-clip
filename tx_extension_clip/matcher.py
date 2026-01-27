@@ -397,8 +397,8 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         self.__construct_index_rev_map()
 
 
-class CLIPVectorIndexBase(CLIPFloatHashIndex):
-    """Base class for FAISS vector indices using cosine similarity.
+class CLIPFloatVectorIndexBase(CLIPFloatHashIndex):
+    """Base class for FAISS float vector indices using cosine similarity.
     
     Provides shared implementation for both flat (exact) and HNSW (approximate) search.
     Requires normalized vectors (inner product = cosine similarity for normalized vectors).
@@ -528,7 +528,7 @@ class CLIPVectorIndexBase(CLIPFloatHashIndex):
         return self.faiss_index.ntotal
 
 
-class CLIPFloatVectorIndex(CLIPVectorIndexBase):
+class CLIPFloatVectorFlatIndex(CLIPFloatVectorIndexBase):
     """FAISS flat vector index using IndexFlatIP for exact cosine similarity search.
     
     Uses exhaustive search - guaranteed to find exact nearest neighbors.
@@ -540,7 +540,7 @@ class CLIPFloatVectorIndex(CLIPVectorIndexBase):
         vectors: t.Iterable[t.Tuple[str, int]] = (),
         dimension: int = 512,
     ):
-        print("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorIndex (exact/flat search)")
+        print("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorFlatIndex (exact/flat search)")
         faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
         super().__init__(vectors, dimension, faiss_index)
 
@@ -558,7 +558,7 @@ class CLIPFloatVectorIndex(CLIPVectorIndexBase):
         self.id_to_vector = state['id_to_vector']
 
 
-class CLIPHNSWVectorIndex(CLIPVectorIndexBase):
+class CLIPFloatVectorHNSWIndex(CLIPFloatVectorIndexBase):
     """FAISS HNSW index for approximate nearest neighbor search with cosine similarity.
     
     HNSW (Hierarchical Navigable Small World) provides faster search than flat index
@@ -579,7 +579,7 @@ class CLIPHNSWVectorIndex(CLIPVectorIndexBase):
         ef_construction: int = CLIP_HNSW_EF_CONSTRUCTION,
         ef_search: int = CLIP_HNSW_EF_SEARCH,
     ):
-        print(f"CLIP_MATCHER_INDEX_TYPE: CLIPHNSWVectorIndex (approximate/hnsw search, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
+        print(f"CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorHNSWIndex (approximate/hnsw search, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
         self.M = M
         self.ef_construction = ef_construction
         self.ef_search = ef_search

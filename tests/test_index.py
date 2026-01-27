@@ -7,7 +7,7 @@ from tests.test_utils import MOCKED_MODULES
 
 patch.dict("sys.modules", MOCKED_MODULES).start()
 
-from tx_extension_clip.index import CLIPIndex, CLIPFlatIndex, CLIPFloatIndex
+from tx_extension_clip.index import CLIPIndex, CLIPFlatIndex, CLIPFloatFlatIndex
 
 
 class TestCLIPIndices(unittest.TestCase):
@@ -109,9 +109,9 @@ class TestCLIPFloatIndices(unittest.TestCase):
         self.vector_hashes = [binascii.hexlify(v.tobytes()).decode() for v in vectors]
         self.entries = [(h, i) for i, h in enumerate(self.vector_hashes)]
 
-    def test_clip_float_index_query(self):
-        """Test CLIPFloatIndex basic query functionality."""
-        index = CLIPFloatIndex(self.entries)
+    def test_clip_float_flat_index_query(self):
+        """Test CLIPFloatFlatIndex basic query functionality."""
+        index = CLIPFloatFlatIndex(self.entries)
         self.assertEqual(len(index), len(self.vector_hashes))
 
         query_hash = self.vector_hashes[0]
@@ -122,9 +122,9 @@ class TestCLIPFloatIndices(unittest.TestCase):
         self.assertEqual(results[0].metadata, 0)
         self.assertLess(results[0].similarity_info.distance, 0.01)
 
-    def test_clip_float_index_query_top_k(self):
-        """Test CLIPFloatIndex top-k query."""
-        index = CLIPFloatIndex(self.entries)
+    def test_clip_float_flat_index_query_top_k(self):
+        """Test CLIPFloatFlatIndex top-k query."""
+        index = CLIPFloatFlatIndex(self.entries)
         query_hash = self.vector_hashes[0]
         k = 2
 
@@ -138,9 +138,9 @@ class TestCLIPFloatIndices(unittest.TestCase):
                 results[i + 1].similarity_info.distance
             )
 
-    def test_clip_float_index_query_threshold(self):
-        """Test CLIPFloatIndex threshold-based query."""
-        index = CLIPFloatIndex(self.entries)
+    def test_clip_float_flat_index_query_threshold(self):
+        """Test CLIPFloatFlatIndex threshold-based query."""
+        index = CLIPFloatFlatIndex(self.entries)
         query_hash = self.vector_hashes[0]
         threshold = 0.5
 

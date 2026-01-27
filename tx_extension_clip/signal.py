@@ -1,5 +1,12 @@
 """
 CLIP Signal Type.
+
+Configuration:
+    CLIP_DISABLE_HNSW_INDEX: Environment variable to disable HNSW index.
+                             Default: HNSW enabled (approximate search - faster for large datasets)
+                             Set to 'true' to disable HNSW and use exact flat search
+                             
+                             Example: export CLIP_DISABLE_HNSW_INDEX=true
 """
 
 import binascii
@@ -17,8 +24,9 @@ from tx_extension_clip.config import (
     CLIP_DISTANCE_THRESHOLD,
     CLIP_FLOAT_DISTANCE_THRESHOLD,
     CLIP_HASHER,
+    CLIP_DISABLE_HNSW_INDEX,
 )
-from tx_extension_clip.index import CLIPFloatIndex, CLIPIndex
+from tx_extension_clip.index import CLIPFloatIndex, CLIPIndex, CLIPHNSWIndex
 from tx_extension_clip.utils.distance import cosine_distance, hamming_distance
 
 class CLIPSignal(
@@ -104,7 +112,7 @@ class CLIPFloatSignal(
 
     @classmethod
     def get_index_cls(cls) -> t.Type[CLIPFloatIndex]:
-        return CLIPFloatIndex
+        return CLIPFloatIndex if CLIP_DISABLE_HNSW_INDEX else CLIPHNSWIndex
 
     @classmethod
     def validate_signal_str(cls, signal_str: str) -> str:

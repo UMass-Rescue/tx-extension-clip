@@ -557,6 +557,8 @@ class CLIPFloatVectorFlatIndex(CLIPFloatVectorIndexBase):
         dimension: int = 512,
     ):
         log_info("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorFlatIndex (exact/flat search)", __name__)
+        # IndexFlatIP uses Inner Product metric by default (IP = Inner Product)
+        # No need to specify metric unlike HNSW where it must be explicit
         faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
         super().__init__(vectors, dimension, faiss_index)
 
@@ -602,7 +604,8 @@ class CLIPFloatVectorHNSWIndex(CLIPFloatVectorIndexBase):
         
         # Create HNSW index with flat storage and Inner Product metric (for cosine similarity)
         # IndexHNSWFlat = HNSW graph + flat storage for vectors
-        # Use METRIC_INNER_PRODUCT to match IndexFlatIP behavior for normalized vectors
+        # METRIC_INNER_PRODUCT must be explicitly specified for HNSW (unlike IndexFlatIP where it's the default)
+        # This ensures consistent cosine similarity behavior for normalized vectors
         hnsw_index = faiss.IndexHNSWFlat(dimension, M, faiss.METRIC_INNER_PRODUCT)
         hnsw_index.hnsw.efConstruction = ef_construction
         hnsw_index.hnsw.efSearch = ef_search

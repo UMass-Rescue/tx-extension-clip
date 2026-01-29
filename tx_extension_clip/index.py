@@ -18,13 +18,17 @@ SignalSimilarityInfoWithFloatDistance = SignalSimilarityInfoWithSingleDistance[f
 from tx_extension_clip.config import (
     BITS_IN_CLIP,
     CLIP_FLAT_HASH_MATCH_THRESHOLD,
-    CLIP_FLOAT_SIMILARITY_THRESHOLD,
+    CLIP_FLOAT_DISTANCE_THRESHOLD,
     CLIP_MULTI_HASH_MATCH_THRESHOLD,
+    CLIP_HNSW_M,
+    CLIP_HNSW_EF_CONSTRUCTION,
+    CLIP_HNSW_EF_SEARCH,
 )
 from tx_extension_clip.matcher import (
     CLIPFlatHashIndex,
     CLIPHashIndex,
-    CLIPFloatVectorIndex,
+    CLIPFloatVectorFlatIndex,
+    CLIPFloatVectorHNSWIndex,
     CLIPMultiHashIndex,
 )
 
@@ -119,20 +123,30 @@ class CLIPFlatIndex(CLIPIndex):
         return CLIPFlatHashIndex()
 
 
-class CLIPFloatIndex(SignalTypeIndex[IndexT]):
-    """Float vector index wrapper using CLIPFloatVectorIndex. Returns cosine distance as float."""
+class CLIPFloatIndexBase(SignalTypeIndex[IndexT]):
+    """Base class for float vector index wrappers. Returns cosine distance as float.
+    
+    Provides shared implementation for both flat (exact) and HNSW (approximate) indices.
+    """
 
     @classmethod
     def get_match_threshold(cls) -> float:
-        return CLIP_FLOAT_SIMILARITY_THRESHOLD
+        return CLIP_FLOAT_DISTANCE_THRESHOLD
 
-    def __init__(self, entries: t.Iterable[t.Tuple[str, IndexT]] = ()) -> None:
+    def __init__(
+        self,
+        entries: t.Iterable[t.Tuple[str, IndexT]],
+        vector_index,
+    ) -> None:
+        """Initialize with a pre-configured matcher index instance.
+        
+        Args:
+            entries: Initial entries to add
+            vector_index: Pre-configured CLIPFloatVectorIndex or CLIPHNSWVectorIndex instance
+        """
         super().__init__()
         self.local_id_to_entry: t.List[t.Tuple[str, IndexT]] = list(entries)
-        self.index: CLIPFloatVectorIndex = CLIPFloatVectorIndex(
-            vectors=[(s, i) for i, (s, _) in enumerate(self.local_id_to_entry)],
-            dimension=BITS_IN_CLIP,
-        )
+        self.index = vector_index
 
     def __len__(self) -> int:
         return len(self.local_id_to_entry)
@@ -185,3 +199,57 @@ class CLIPFloatIndex(SignalTypeIndex[IndexT]):
         self.index.add(
             [(s, i + start) for i, (s, _) in enumerate(entry_list)],
         )
+
+
+class CLIPFloatFlatIndex(CLIPFloatIndexBase):
+    """Float vector index wrapper using flat (exact) search."""
+
+    def __init__(self, entries: t.Iterable[t.Tuple[str, IndexT]] = ()) -> None:
+        entry_list = list(entries)
+        vector_index = CLIPFloatVectorFlatIndex(
+            vectors=[(s, i) for i, (s, _) in enumerate(entry_list)],
+            dimension=BITS_IN_CLIP,
+        )
+        super().__init__(entry_list, vector_index)
+        print("CLIP_SIGNAL_INDEX_TYPE: CLIPFloatFlatIndex (exact/flat search wrapper)")
+
+
+class CLIPFloatHNSWIndex(CLIPFloatIndexBase):
+    """Float vector index wrapper using HNSW (approximate) search.
+    
+    HNSW (Hierarchical Navigable Small World) provides fast approximate nearest neighbor search,
+    suitable for large-scale datasets where exact search becomes too slow.
+    
+    Trade-offs:
+    - Much faster search than CLIPFloatFlatIndex (especially for large datasets)
+    - Slightly less accurate (approximate results)
+    - Uses more memory due to HNSW graph structure
+    - Configurable accuracy/speed trade-offs via M, ef_construction, and ef_search parameters
+    """
+
+    def __init__(
+        self,
+        entries: t.Iterable[t.Tuple[str, IndexT]] = (),
+        M: int = CLIP_HNSW_M,
+        ef_construction: int = CLIP_HNSW_EF_CONSTRUCTION,
+        ef_search: int = CLIP_HNSW_EF_SEARCH,
+    ) -> None:
+        """
+        Initialize HNSW index with configurable parameters.
+        
+        Args:
+            entries: Initial entries to add to the index
+            M: Number of connections per layer (default 32, higher = better accuracy, more memory)
+            ef_construction: Size of candidate list during construction (default 200, higher = better quality, slower build)
+            ef_search: Size of candidate list during search (default 128, higher = better recall, slower search)
+        """
+        entry_list = list(entries)
+        vector_index = CLIPFloatVectorHNSWIndex(
+            vectors=[(s, i) for i, (s, _) in enumerate(entry_list)],
+            dimension=BITS_IN_CLIP,
+            M=M,
+            ef_construction=ef_construction,
+            ef_search=ef_search,
+        )
+        super().__init__(entry_list, vector_index)
+        print(f"CLIP_SIGNAL_INDEX_TYPE: CLIPFloatHNSWIndex (approximate/hnsw search wrapper, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")

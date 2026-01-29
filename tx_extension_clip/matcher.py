@@ -5,7 +5,12 @@ from abc import ABC, abstractmethod
 import faiss
 import numpy
 
-from tx_extension_clip.config import BITS_IN_CLIP
+from tx_extension_clip.config import (
+    BITS_IN_CLIP,
+    CLIP_HNSW_M,
+    CLIP_HNSW_EF_CONSTRUCTION,
+    CLIP_HNSW_EF_SEARCH,
+)
 from tx_extension_clip.utils.uint import int64_to_uint64, uint64_to_int64
 from tx_extension_clip.utils.distance import similarity_to_distance
 
@@ -392,30 +397,38 @@ class CLIPMultiHashIndex(CLIPHashIndex):
         self.__construct_index_rev_map()
 
 
-class CLIPFloatVectorIndex(CLIPFloatHashIndex):
-    """FAISS float vector index using IndexFlatIP for cosine similarity. 
+class CLIPFloatVectorIndexBase(CLIPFloatHashIndex):
+    """Base class for FAISS float vector indices using cosine similarity.
     
-    Requires normalized vectors (IndexFlatIP computes inner product = cosine similarity only for normalized vectors).
-    Normalization is verified when adding vectors to the index.
+    Provides shared implementation for both flat (exact) and HNSW (approximate) search.
+    Requires normalized vectors (inner product = cosine similarity for normalized vectors).
     """
 
     def __init__(
         self,
-        vectors: t.Iterable[t.Tuple[str, int]] = (),
-        dimension: int = 512,
+        vectors: t.Iterable[t.Tuple[str, int]],
+        dimension: int,
+        faiss_index: faiss.Index,
     ):
+        """Initialize with a FAISS index instance.
+        
+        Args:
+            vectors: Initial vectors to add
+            dimension: Vector dimension
+            faiss_index: Pre-configured FAISS index instance (wrapped with IDMap2)
+        """
         self.dimension = dimension
-        self.faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
+        self.faiss_index = faiss_index
         self.id_to_vector: t.Dict[int, numpy.ndarray] = {}
         self.add(vectors)
 
     def add(self, vectors: t.Iterable[t.Tuple[str, int]]):
-        """Adds normalized vectors to the index (required for IndexFlatIP cosine similarity)."""
+        """Adds normalized vectors to the index (required for cosine similarity)."""
         vector_list = []
         id_list = []
         for vec_str, custom_id in vectors:
             vec = numpy.frombuffer(binascii.unhexlify(vec_str), dtype=numpy.float32)
-            # Verify vectors are normalized (IndexFlatIP requires normalized vectors for cosine similarity)
+            # Verify vectors are normalized (required for cosine similarity)
             norm = numpy.linalg.norm(vec)
             if not numpy.isclose(norm, 1.0, rtol=1e-5):
                 raise ValueError(f"Vector must be normalized for cosine similarity (norm={norm})")
@@ -439,7 +452,7 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
         """Search for top k matches. Assumes query vectors are normalized.
         
         Returns (id, vector_hex, distance) tuples where distance is cosine distance
-        in range [0, 2]. For normalized vectors, IndexFlatIP returns cosine similarity
+        in range [0, 2]. For normalized vectors, index returns cosine similarity
         in range [-1, 1], which we convert to distance = 1.0 - similarity.
         """
         if len(queries) == 0:
@@ -458,8 +471,7 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
                 idx = indices[i][j]
                 if idx >= 0:
                     similarity = _to_python_float(similarities[i][j])
-                    # Convert similarity to distance using common utility function
-                    # For cosine similarity in [-1, 1], distance ranges from [0, 2]
+                    # Convert similarity to distance
                     distance = similarity_to_distance(similarity)
                     vector = self.id_to_vector[idx]
                     vector_hex = binascii.hexlify(vector.tobytes()).decode()
@@ -477,12 +489,22 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
         
         Args:
             threshold: Maximum distance. Returns items with distance <= threshold.
+
+        Note on FAISS range_search:
+            This implementation uses `faiss_index.range_search`. 
+            For `METRIC_INNER_PRODUCT` (used here for cosine similarity), FAISS's 
+            `range_search` returns vectors where `InnerProduct > radius`.
+            
+            To match our distance-based API (where distance = 1.0 - similarity), 
+            we convert the distance threshold to a similarity radius:
+            `faiss_threshold = (1.0 - distance_threshold) - epsilon`.
+            
+            The epsilon ensures that vectors exactly at the threshold are included,
+            simulating a `>=` similarity (or `<=` distance) check.
         """
         if len(queries) == 0:
             return {}
         
-        # Convert max distance to min similarity: distance = 1.0 - similarity
-        # Add small tolerance to account for floating point precision
         similarity_threshold = 1.0 - threshold
         epsilon = 1e-5
         faiss_threshold = similarity_threshold - epsilon
@@ -517,6 +539,25 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
     def __len__(self) -> int:
         return self.faiss_index.ntotal
 
+
+class CLIPFloatVectorFlatIndex(CLIPFloatVectorIndexBase):
+    """FAISS flat vector index using IndexFlatIP for exact cosine similarity search.
+    
+    Uses exhaustive search - guaranteed to find exact nearest neighbors.
+    Suitable for smaller datasets or when exact results are required.
+    """
+
+    def __init__(
+        self,
+        vectors: t.Iterable[t.Tuple[str, int]] = (),
+        dimension: int = 512,
+    ):
+        print("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorFlatIndex (exact/flat search)")
+        # IndexFlatIP uses Inner Product metric by default (IP = Inner Product)
+        # No need to specify metric unlike HNSW where it must be explicit
+        faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
+        super().__init__(vectors, dimension, faiss_index)
+
     def __getstate__(self):
         faiss_data = faiss.serialize_index(self.faiss_index)
         return {
@@ -529,3 +570,67 @@ class CLIPFloatVectorIndex(CLIPFloatHashIndex):
         self.dimension = state['dimension']
         self.faiss_index = faiss.deserialize_index(state['faiss_data'])
         self.id_to_vector = state['id_to_vector']
+
+
+class CLIPFloatVectorHNSWIndex(CLIPFloatVectorIndexBase):
+    """FAISS HNSW index for approximate nearest neighbor search with cosine similarity.
+    
+    HNSW (Hierarchical Navigable Small World) provides faster search than flat index
+    with configurable accuracy trade-offs. Uses IndexHNSWFlat which combines HNSW graph
+    with flat storage for exact distance computation.
+    
+    Parameters:
+        M: Number of connections per layer (default 32, higher = better accuracy, more memory)
+        ef_construction: Size of candidate list during construction (default 200, higher = better quality, slower build)
+        ef_search: Size of candidate list during search (default 128, higher = better recall, slower search)
+    """
+
+    def __init__(
+        self,
+        vectors: t.Iterable[t.Tuple[str, int]] = (),
+        dimension: int = 512,
+        M: int = CLIP_HNSW_M,
+        ef_construction: int = CLIP_HNSW_EF_CONSTRUCTION,
+        ef_search: int = CLIP_HNSW_EF_SEARCH,
+    ):
+        print(f"CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorHNSWIndex (approximate/hnsw search, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
+        self.M = M
+        self.ef_construction = ef_construction
+        self.ef_search = ef_search
+        
+        # Create HNSW index with flat storage and Inner Product metric (for cosine similarity)
+        # IndexHNSWFlat = HNSW graph + flat storage for vectors
+        # METRIC_INNER_PRODUCT must be explicitly specified for HNSW (unlike IndexFlatIP where it's the default)
+        # This ensures consistent cosine similarity behavior for normalized vectors
+        hnsw_index = faiss.IndexHNSWFlat(dimension, M, faiss.METRIC_INNER_PRODUCT)
+        hnsw_index.hnsw.efConstruction = ef_construction
+        hnsw_index.hnsw.efSearch = ef_search
+        
+        # Wrap with IDMap2 to support custom IDs
+        faiss_index = faiss.IndexIDMap2(hnsw_index)
+        super().__init__(vectors, dimension, faiss_index)
+
+    def __getstate__(self):
+        faiss_data = faiss.serialize_index(self.faiss_index)
+        return {
+            'dimension': self.dimension,
+            'M': self.M,
+            'ef_construction': self.ef_construction,
+            'ef_search': self.ef_search,
+            'faiss_data': faiss_data,
+            'id_to_vector': self.id_to_vector,
+        }
+
+    def __setstate__(self, state):
+        self.dimension = state['dimension']
+        self.M = state['M']
+        self.ef_construction = state['ef_construction']
+        self.ef_search = state['ef_search']
+        self.faiss_index = faiss.deserialize_index(state['faiss_data'])
+        self.id_to_vector = state['id_to_vector']
+        
+        # Restore ef_search parameter after deserialization
+        if hasattr(self.faiss_index, 'index'):
+            hnsw_index = self.faiss_index.index
+            if hasattr(hnsw_index, 'hnsw'):
+                hnsw_index.hnsw.efSearch = self.ef_search

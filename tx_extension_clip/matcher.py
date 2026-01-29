@@ -587,9 +587,10 @@ class CLIPFloatVectorHNSWIndex(CLIPFloatVectorIndexBase):
         self.ef_construction = ef_construction
         self.ef_search = ef_search
         
-        # Create HNSW index with flat storage
+        # Create HNSW index with flat storage and Inner Product metric (for cosine similarity)
         # IndexHNSWFlat = HNSW graph + flat storage for vectors
-        hnsw_index = faiss.IndexHNSWFlat(dimension, M)
+        # Use METRIC_INNER_PRODUCT to match IndexFlatIP behavior for normalized vectors
+        hnsw_index = faiss.IndexHNSWFlat(dimension, M, faiss.METRIC_INNER_PRODUCT)
         hnsw_index.hnsw.efConstruction = ef_construction
         hnsw_index.hnsw.efSearch = ef_search
         

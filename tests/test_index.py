@@ -7,7 +7,7 @@ from tests.test_utils import MOCKED_MODULES
 
 patch.dict("sys.modules", MOCKED_MODULES).start()
 
-from tx_extension_clip.index import CLIPIndex, CLIPFlatIndex, CLIPFloatFlatIndex
+from tx_extension_clip.index import CLIPIndex, CLIPFlatIndex, CLIPFloatFlatIndex, CLIPFloatHNSWIndex
 
 
 class TestCLIPIndices(unittest.TestCase):
@@ -149,6 +149,76 @@ class TestCLIPFloatIndices(unittest.TestCase):
         # All results should be within threshold
         for result in results:
             self.assertLessEqual(result.similarity_info.distance, threshold)
+
+
+class TestCLIPFloatHNSWIndices(unittest.TestCase):
+    def setUp(self):
+        """Set up test vectors (normalized float32 vectors represented as hex strings)."""
+        # Create normalized random vectors for testing
+        np.random.seed(42)
+        vectors = []
+        for i in range(4):
+            vec = np.random.randn(512).astype(np.float32)
+            vec = vec / np.linalg.norm(vec)  # Normalize
+            vectors.append(vec)
+        
+        self.vector_hashes = [binascii.hexlify(v.tobytes()).decode() for v in vectors]
+        self.entries = [(h, i) for i, h in enumerate(self.vector_hashes)]
+
+    def test_clip_float_hnsw_index_query(self):
+        """Test CLIPFloatHNSWIndex basic query functionality."""
+        index = CLIPFloatHNSWIndex(self.entries)
+        self.assertEqual(len(index), len(self.vector_hashes))
+
+        query_hash = self.vector_hashes[0]
+        results = index.query(query_hash)
+        
+        # Should find itself with distance ~0 (approximate search may have small error)
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0].metadata, 0)
+        self.assertLess(results[0].similarity_info.distance, 0.01)
+
+    def test_clip_float_hnsw_index_query_top_k(self):
+        """Test CLIPFloatHNSWIndex top-k query."""
+        index = CLIPFloatHNSWIndex(self.entries)
+        query_hash = self.vector_hashes[0]
+        k = 2
+
+        results = index.query_top_k(query_hash, k)
+        
+        self.assertEqual(len(results), k)
+        # Results should be sorted by distance
+        for i in range(len(results) - 1):
+            self.assertLessEqual(
+                results[i].similarity_info.distance,
+                results[i + 1].similarity_info.distance
+            )
+
+    def test_clip_float_hnsw_index_query_threshold(self):
+        """Test CLIPFloatHNSWIndex threshold-based query."""
+        index = CLIPFloatHNSWIndex(self.entries)
+        query_hash = self.vector_hashes[0]
+        threshold = 0.5
+
+        results = index.query_threshold(query_hash, threshold)
+        
+        # All results should be within threshold
+        for result in results:
+            self.assertLessEqual(result.similarity_info.distance, threshold)
+
+    def test_clip_float_hnsw_index_custom_params(self):
+        """Test CLIPFloatHNSWIndex with custom HNSW parameters."""
+        # Test with custom parameters
+        index = CLIPFloatHNSWIndex(self.entries, M=16, ef_construction=100, ef_search=64)
+        self.assertEqual(len(index), len(self.vector_hashes))
+        
+        query_hash = self.vector_hashes[0]
+        results = index.query(query_hash)
+        
+        # Should still find itself even with different parameters
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0].metadata, 0)
+        self.assertLess(results[0].similarity_info.distance, 0.01)
 
 
 if __name__ == "__main__":

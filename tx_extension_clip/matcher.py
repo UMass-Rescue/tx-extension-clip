@@ -16,6 +16,7 @@ from tx_extension_clip.config import (
 )
 from tx_extension_clip.utils.uint import int64_to_uint64, uint64_to_int64
 from tx_extension_clip.utils.distance import similarity_to_distance
+from tx_extension_clip.utils.logging import log_info
 
 CLIP_HASH_TYPE = t.Union[str, bytes]
 
@@ -555,7 +556,7 @@ class CLIPFloatVectorFlatIndex(CLIPFloatVectorIndexBase):
         vectors: t.Iterable[t.Tuple[str, int]] = (),
         dimension: int = 512,
     ):
-        logger.info("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorFlatIndex (exact/flat search)")
+        log_info("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorFlatIndex (exact/flat search)", __name__)
         faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
         super().__init__(vectors, dimension, faiss_index)
 
@@ -594,7 +595,7 @@ class CLIPFloatVectorHNSWIndex(CLIPFloatVectorIndexBase):
         ef_construction: int = CLIP_HNSW_EF_CONSTRUCTION,
         ef_search: int = CLIP_HNSW_EF_SEARCH,
     ):
-        logger.info(f"CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorHNSWIndex (approximate/hnsw search, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
+        log_info(f"CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorHNSWIndex (approximate/hnsw search, M={M}, ef_construction={ef_construction}, ef_search={ef_search})", __name__)
         self.M = M
         self.ef_construction = ef_construction
         self.ef_search = ef_search

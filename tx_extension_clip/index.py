@@ -21,7 +21,7 @@ SignalSimilarityInfoWithFloatDistance = SignalSimilarityInfoWithSingleDistance[f
 from tx_extension_clip.config import (
     BITS_IN_CLIP,
     CLIP_FLAT_HASH_MATCH_THRESHOLD,
-    CLIP_FLOAT_SIMILARITY_THRESHOLD,
+    CLIP_FLOAT_DISTANCE_THRESHOLD,
     CLIP_MULTI_HASH_MATCH_THRESHOLD,
     CLIP_HNSW_M,
     CLIP_HNSW_EF_CONSTRUCTION,
@@ -134,7 +134,7 @@ class CLIPFloatIndexBase(SignalTypeIndex[IndexT]):
 
     @classmethod
     def get_match_threshold(cls) -> float:
-        return CLIP_FLOAT_SIMILARITY_THRESHOLD
+        return CLIP_FLOAT_DISTANCE_THRESHOLD
 
     def __init__(
         self,

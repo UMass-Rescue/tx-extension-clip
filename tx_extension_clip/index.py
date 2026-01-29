@@ -2,7 +2,10 @@
 Implementation of SignalTypeIndex abstraction for CLIP by wrapping `matcher`
 """
 
+import logging
 import typing as t
+
+logger = logging.getLogger(__name__)
 
 from threatexchange.signal_type.index import (
     IndexMatchUntyped,
@@ -211,7 +214,7 @@ class CLIPFloatFlatIndex(CLIPFloatIndexBase):
             dimension=BITS_IN_CLIP,
         )
         super().__init__(entry_list, vector_index)
-        print("CLIP_SIGNAL_INDEX_TYPE: CLIPFloatFlatIndex (exact/flat search wrapper)")
+        logger.info("CLIP_SIGNAL_INDEX_TYPE: CLIPFloatFlatIndex (exact/flat search wrapper)")
 
 
 class CLIPFloatHNSWIndex(CLIPFloatIndexBase):
@@ -252,4 +255,4 @@ class CLIPFloatHNSWIndex(CLIPFloatIndexBase):
             ef_search=ef_search,
         )
         super().__init__(entry_list, vector_index)
-        print(f"CLIP_SIGNAL_INDEX_TYPE: CLIPFloatHNSWIndex (approximate/hnsw search wrapper, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
+        logger.info(f"CLIP_SIGNAL_INDEX_TYPE: CLIPFloatHNSWIndex (approximate/hnsw search wrapper, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")

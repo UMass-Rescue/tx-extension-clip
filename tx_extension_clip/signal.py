@@ -26,7 +26,7 @@ from tx_extension_clip.config import (
     CLIP_HASHER,
     CLIP_DISABLE_HNSW_INDEX,
 )
-from tx_extension_clip.index import CLIPFloatIndex, CLIPIndex, CLIPHNSWIndex
+from tx_extension_clip.index import CLIPFloatFlatIndex, CLIPFloatHNSWIndex, CLIPIndex
 from tx_extension_clip.utils.distance import cosine_distance, hamming_distance
 
 class CLIPSignal(
@@ -111,8 +111,8 @@ class CLIPFloatSignal(
         return [PhotoContent]
 
     @classmethod
-    def get_index_cls(cls) -> t.Type[CLIPFloatIndex]:
-        return CLIPFloatIndex if CLIP_DISABLE_HNSW_INDEX else CLIPHNSWIndex
+    def get_index_cls(cls) -> t.Type[CLIPFloatFlatIndex]:
+        return CLIPFloatFlatIndex if CLIP_DISABLE_HNSW_INDEX else CLIPFloatHNSWIndex
 
     @classmethod
     def validate_signal_str(cls, signal_str: str) -> str:

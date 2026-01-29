@@ -492,6 +492,18 @@ class CLIPFloatVectorIndexBase(CLIPFloatHashIndex):
         
         Args:
             threshold: Maximum distance. Returns items with distance <= threshold.
+
+        Note on FAISS range_search:
+            This implementation uses `faiss_index.range_search`. 
+            For `METRIC_INNER_PRODUCT` (used here for cosine similarity), FAISS's 
+            `range_search` returns vectors where `InnerProduct > radius`.
+            
+            To match our distance-based API (where distance = 1.0 - similarity), 
+            we convert the distance threshold to a similarity radius:
+            `faiss_threshold = (1.0 - distance_threshold) - epsilon`.
+            
+            The epsilon ensures that vectors exactly at the threshold are included,
+            simulating a `>=` similarity (or `<=` distance) check.
         """
         if len(queries) == 0:
             return {}

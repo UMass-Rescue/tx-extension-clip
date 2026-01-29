@@ -1,9 +1,12 @@
 import binascii
+import logging
 import typing as t
 from abc import ABC, abstractmethod
 
 import faiss
 import numpy
+
+logger = logging.getLogger(__name__)
 
 from tx_extension_clip.config import (
     BITS_IN_CLIP,
@@ -540,7 +543,7 @@ class CLIPFloatVectorFlatIndex(CLIPFloatVectorIndexBase):
         vectors: t.Iterable[t.Tuple[str, int]] = (),
         dimension: int = 512,
     ):
-        print("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorFlatIndex (exact/flat search)")
+        logger.info("CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorFlatIndex (exact/flat search)")
         faiss_index = faiss.IndexIDMap2(faiss.IndexFlatIP(dimension))
         super().__init__(vectors, dimension, faiss_index)
 
@@ -579,7 +582,7 @@ class CLIPFloatVectorHNSWIndex(CLIPFloatVectorIndexBase):
         ef_construction: int = CLIP_HNSW_EF_CONSTRUCTION,
         ef_search: int = CLIP_HNSW_EF_SEARCH,
     ):
-        print(f"CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorHNSWIndex (approximate/hnsw search, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
+        logger.info(f"CLIP_MATCHER_INDEX_TYPE: CLIPFloatVectorHNSWIndex (approximate/hnsw search, M={M}, ef_construction={ef_construction}, ef_search={ef_search})")
         self.M = M
         self.ef_construction = ef_construction
         self.ef_search = ef_search

@@ -1,4 +1,5 @@
 """Configuration for CLIP Threat Exchange Extension."""
+import os
 from tx_extension_clip.hasher import CLIPHasher
 
 # Note that the embeddings must match the model used to generate the hashes.
@@ -12,6 +13,15 @@ CLIP_DISTANCE_THRESHOLD: int = (
 
 CLIP_FLOAT_SIMILARITY_THRESHOLD: float = 0.90
 CLIP_FLOAT_DISTANCE_THRESHOLD: float = 0.10
+
+# Toggle to select HNSW (approximate) vs Flat (exact) index for float vectors
+# Default: False (HNSW enabled). Set CLIP_DISABLE_HNSW_INDEX='true' to disable.
+CLIP_DISABLE_HNSW_INDEX: bool = os.environ.get('CLIP_DISABLE_HNSW_INDEX', '').lower() == 'true'
+
+# HNSW Index Configuration
+CLIP_HNSW_M: int = 32  # Number of connections per layer (trade-off between accuracy and memory)
+CLIP_HNSW_EF_CONSTRUCTION: int = 200  # Size of dynamic candidate list during construction (higher = better quality, slower build)
+CLIP_HNSW_EF_SEARCH: int = 128  # Size of dynamic candidate list during search (higher = better recall, slower search)
 
 CLIP_NORMALIZED: bool = True
 OPEN_CLIP_MODEL_NAME: str = "xlm-roberta-base-ViT-B-32"

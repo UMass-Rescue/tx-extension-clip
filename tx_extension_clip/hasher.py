@@ -73,6 +73,7 @@ class CLIPHasher:
         self.model_name: str = model_name
         self.pretrained: str = pretrained
         self.normalized: bool = normalized
+        self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self._model: Optional[torch.nn.Module] = None
         self._transform: Optional[transforms.Compose] = None
@@ -130,6 +131,7 @@ class CLIPHasher:
         self._model, _, self._transform = open_clip.create_model_and_transforms(
             self.model_name, self.pretrained
         )
+        self._model = self._model.to(self.device)
 
     def hash_from_file(self, path: pathlib.Path) -> CLIPOutput:
         """Returns the CLIP hash from a file path.
@@ -187,13 +189,15 @@ class CLIPHasher:
         """
         transformed_images: torch.Tensor = torch.stack(
             [self.transform(image) for image in images]
-        )
+        ).to(self.device)
         
         with torch.no_grad():
             image_features: torch.Tensor = self.model.visual(transformed_images)
         
         if self.normalized:
             image_features = torch.nn.functional.normalize(image_features, dim=1)
+        
+        image_features = image_features.cpu()
         
         return [
             CLIPOutput(
@@ -216,7 +220,7 @@ class CLIPHasher:
         """
         transformed_images: torch.Tensor = torch.stack(
             [self.transform(image) for image in images]
-        )
+        ).to(self.device)
         
         with torch.no_grad():
             image_features: torch.Tensor = self.model.visual(transformed_images)
@@ -224,7 +228,7 @@ class CLIPHasher:
         if self.normalized:
             image_features = torch.nn.functional.normalize(image_features, dim=1)
         
-        return image_features.numpy().astype(np.float32)
+        return image_features.cpu().numpy().astype(np.float32)
 
     def get_float_vector_strs_from_image_list(self, images: List[Image.Image]) -> List[str]:
         """Returns serialized float CLIP vectors from a list of PIL Image objects.

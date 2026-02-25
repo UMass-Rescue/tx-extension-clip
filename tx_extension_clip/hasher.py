@@ -69,11 +69,19 @@ class CLIPHasher:
     The CLIP hasher. Handles the CLIP model and transform pipeline to generate hashes.
     """
 
-    def __init__(self, model_name: str, pretrained: str, normalized: bool = True):
+    def __init__(
+        self,
+        model_name: str,
+        pretrained: str,
+        normalized: bool = True,
+        device: Optional[torch.device] = None,
+    ):
         self.model_name: str = model_name
         self.pretrained: str = pretrained
         self.normalized: bool = normalized
-        if torch.cuda.is_available():
+        if device is not None:
+            self.device = device
+        elif torch.cuda.is_available():
             self.device = torch.device("cuda")
         elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
             self.device = torch.device("mps")

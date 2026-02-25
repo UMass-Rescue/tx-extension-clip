@@ -93,6 +93,11 @@ class TestCLIPHasher(unittest.TestCase):
 
 
 class TestCLIPHasherDeviceSelection(unittest.TestCase):
+    def test_explicit_device_is_used(self):
+        explicit_device = MagicMock()
+        hasher = CLIPHasher(model_name="m", pretrained="p", device=explicit_device)
+        self.assertIs(hasher.device, explicit_device)
+
     @patch("tx_extension_clip.hasher.torch")
     def test_uses_cuda_when_available(self, mock_torch):
         mock_torch.cuda.is_available.return_value = True

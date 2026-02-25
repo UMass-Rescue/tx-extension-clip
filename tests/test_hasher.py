@@ -54,6 +54,7 @@ class TestCLIPHasher(unittest.TestCase):
     @patch("tx_extension_clip.hasher.open_clip.create_model_and_transforms")
     def test_hash_from_image(self, mock_create_model, mock_torch):
         mock_model = MagicMock()
+        mock_model.to.return_value = mock_model
         mock_preprocess = MagicMock()
         mock_create_model.return_value = (mock_model, None, mock_preprocess)
 
@@ -74,7 +75,9 @@ class TestCLIPHasher(unittest.TestCase):
         mock_torch.no_grad.return_value.__exit__ = MagicMock(return_value=None)
         mock_torch.nn.functional.normalize.side_effect = lambda x, dim: x
         
-        mock_model.visual.return_value = [image_feature_mock]
+        mock_features = MagicMock()
+        mock_features.cpu.return_value = [image_feature_mock]
+        mock_model.visual.return_value = mock_features
 
         expected_hash = np.array([1, 2, 3, 4], dtype=np.uint8)
         with patch.object(
@@ -87,6 +90,40 @@ class TestCLIPHasher(unittest.TestCase):
             mock_model.visual.assert_called_once()
             mock_quantize.assert_called_once_with(mock_numpy_array)
             np.testing.assert_array_equal(clip_output[0].hash_vector, expected_hash)
+
+
+class TestCLIPHasherDeviceSelection(unittest.TestCase):
+    @patch("tx_extension_clip.hasher.torch")
+    def test_uses_cuda_when_available(self, mock_torch):
+        mock_torch.cuda.is_available.return_value = True
+        mock_torch.device.side_effect = lambda x: x
+
+        hasher = CLIPHasher(model_name="m", pretrained="p")
+
+        mock_torch.device.assert_called_with("cuda")
+        self.assertEqual(hasher.device, "cuda")
+
+    @patch("tx_extension_clip.hasher.torch")
+    def test_uses_mps_when_cuda_unavailable(self, mock_torch):
+        mock_torch.cuda.is_available.return_value = False
+        mock_torch.backends.mps.is_available.return_value = True
+        mock_torch.device.side_effect = lambda x: x
+
+        hasher = CLIPHasher(model_name="m", pretrained="p")
+
+        mock_torch.device.assert_called_with("mps")
+        self.assertEqual(hasher.device, "mps")
+
+    @patch("tx_extension_clip.hasher.torch")
+    def test_uses_cpu_as_fallback(self, mock_torch):
+        mock_torch.cuda.is_available.return_value = False
+        mock_torch.backends.mps.is_available.return_value = False
+        mock_torch.device.side_effect = lambda x: x
+
+        hasher = CLIPHasher(model_name="m", pretrained="p")
+
+        mock_torch.device.assert_called_with("cpu")
+        self.assertEqual(hasher.device, "cpu")
 
 
 if __name__ == "__main__":

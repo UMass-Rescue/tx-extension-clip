@@ -93,10 +93,26 @@ class CLIPSignal(
         return clip_output.serialize()
 
     @classmethod
-    def hash_from_file_list(cls, paths: t.List[pathlib.Path]) -> t.List[str]:
-        """Batch-generate binary CLIP hashes from multiple image files."""
-        outputs = CLIP_HASHER.hash_from_file_list(paths)
-        return [output.serialize() for output in outputs]
+    def hash_from_file_list(
+        cls, paths: t.List[pathlib.Path], batch_size: int = 64
+    ) -> t.List[str]:
+        """Batch-generate binary CLIP hashes from multiple image files.
+
+        Images are processed in batches to avoid out-of-memory errors on large inputs.
+        """
+        if not paths:
+            return []
+        results: t.List[str] = []
+        for i in range(0, len(paths), batch_size):
+            batch_paths = paths[i : i + batch_size]
+            images = [Image.open(path) for path in batch_paths]
+            try:
+                outputs = CLIP_HASHER.hash_from_image_list(images)
+                results.extend(output.serialize() for output in outputs)
+            finally:
+                for img in images:
+                    img.close()
+        return results
 
     @staticmethod
     def get_examples() -> t.List[str]:
@@ -159,14 +175,25 @@ class CLIPFloatSignal(
         return vectors[0]
 
     @classmethod
-    def hash_from_file_list(cls, paths: t.List[pathlib.Path]) -> t.List[str]:
+    def hash_from_file_list(
+        cls, paths: t.List[pathlib.Path], batch_size: int = 64
+    ) -> t.List[str]:
         """Batch-generate CLIP float vectors from multiple image files.
 
-        All images are processed in a single model forward pass,
-        which provides significant throughput improvement on GPU.
+        Images are processed in batches to avoid out-of-memory errors on large inputs.
         """
-        images = [Image.open(path) for path in paths]
-        return CLIP_HASHER.get_float_vector_strs_from_image_list(images)
+        if not paths:
+            return []
+        results: t.List[str] = []
+        for i in range(0, len(paths), batch_size):
+            batch_paths = paths[i : i + batch_size]
+            images = [Image.open(path) for path in batch_paths]
+            try:
+                results.extend(CLIP_HASHER.get_float_vector_strs_from_image_list(images))
+            finally:
+                for img in images:
+                    img.close()
+        return results
 
     @classmethod
     def compare_hash(

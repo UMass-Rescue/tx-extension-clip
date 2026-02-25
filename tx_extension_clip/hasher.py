@@ -73,7 +73,12 @@ class CLIPHasher:
         self.model_name: str = model_name
         self.pretrained: str = pretrained
         self.normalized: bool = normalized
-        self.device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
 
         self._model: Optional[torch.nn.Module] = None
         self._transform: Optional[transforms.Compose] = None

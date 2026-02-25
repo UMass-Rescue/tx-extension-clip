@@ -66,13 +66,11 @@ class TestCosineDistance(unittest.TestCase):
     def test_zero_vector_vs_non_zero(self):
         v1 = np.array([0.0, 0.0, 0.0])
         v2 = np.array([1.0, 2.0, 3.0])
-        with self.assertWarns(RuntimeWarning):
-            self.assertTrue(np.isnan(cosine_distance(v1, v2)))
+        self.assertEqual(cosine_distance(v1, v2), 1.0)
 
     def test_zero_vector_vs_zero_vector(self):
         v1 = np.array([0.0, 0.0, 0.0])
-        with self.assertWarns(RuntimeWarning):
-            self.assertTrue(np.isnan(cosine_distance(v1, v1)))
+        self.assertEqual(cosine_distance(v1, v1), 0.0)
     
     def test_different_length_vectors(self):
         v1 = np.array([1.0, 2.0])

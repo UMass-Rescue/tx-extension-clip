@@ -69,10 +69,24 @@ class CLIPHasher:
     The CLIP hasher. Handles the CLIP model and transform pipeline to generate hashes.
     """
 
-    def __init__(self, model_name: str, pretrained: str, normalized: bool = True):
+    def __init__(
+        self,
+        model_name: str,
+        pretrained: str,
+        normalized: bool = True,
+        device: Optional[torch.device] = None,
+    ):
         self.model_name: str = model_name
         self.pretrained: str = pretrained
         self.normalized: bool = normalized
+        if device is not None:
+            self.device = device
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        else:
+            self.device = torch.device("cpu")
 
         self._model: Optional[torch.nn.Module] = None
         self._transform: Optional[transforms.Compose] = None
@@ -130,6 +144,7 @@ class CLIPHasher:
         self._model, _, self._transform = open_clip.create_model_and_transforms(
             self.model_name, self.pretrained
         )
+        self._model = self._model.to(self.device)
 
     def hash_from_file(self, path: pathlib.Path) -> CLIPOutput:
         """Returns the CLIP hash from a file path.
@@ -187,13 +202,15 @@ class CLIPHasher:
         """
         transformed_images: torch.Tensor = torch.stack(
             [self.transform(image) for image in images]
-        )
+        ).to(self.device)
         
         with torch.no_grad():
             image_features: torch.Tensor = self.model.visual(transformed_images)
         
         if self.normalized:
             image_features = torch.nn.functional.normalize(image_features, dim=1)
+        
+        image_features = image_features.cpu()
         
         return [
             CLIPOutput(
@@ -216,7 +233,7 @@ class CLIPHasher:
         """
         transformed_images: torch.Tensor = torch.stack(
             [self.transform(image) for image in images]
-        )
+        ).to(self.device)
         
         with torch.no_grad():
             image_features: torch.Tensor = self.model.visual(transformed_images)
@@ -224,7 +241,7 @@ class CLIPHasher:
         if self.normalized:
             image_features = torch.nn.functional.normalize(image_features, dim=1)
         
-        return image_features.numpy().astype(np.float32)
+        return image_features.cpu().numpy().astype(np.float32)
 
     def get_float_vector_strs_from_image_list(self, images: List[Image.Image]) -> List[str]:
         """Returns serialized float CLIP vectors from a list of PIL Image objects.

@@ -11,6 +11,7 @@ Configuration:
 
 import binascii
 import io
+import pathlib
 import typing as t
 
 import numpy as np
@@ -32,6 +33,7 @@ from tx_extension_clip.utils.distance import cosine_distance, hamming_distance
 class CLIPSignal(
     signal_base.SignalType,
     signal_base.BytesHasher,
+    signal_base.FileHasher,
 ):
     """
     CLIP Signal Type.
@@ -84,6 +86,34 @@ class CLIPSignal(
         distance = hamming_distance(h1_bytes, h2_bytes)
         return signal_base.SignalComparisonResult.from_simple_dist(distance, threshold)
 
+    @classmethod
+    def hash_from_file(cls, path: pathlib.Path) -> str:
+        """Generate a binary CLIP hash from an image file."""
+        clip_output = CLIP_HASHER.hash_from_file(path)
+        return clip_output.serialize()
+
+    @classmethod
+    def hash_from_file_list(
+        cls, paths: t.List[pathlib.Path], batch_size: int = 64
+    ) -> t.List[str]:
+        """Batch-generate binary CLIP hashes from multiple image files.
+
+        Images are processed in batches to avoid out-of-memory errors on large inputs.
+        """
+        if not paths:
+            return []
+        results: t.List[str] = []
+        for i in range(0, len(paths), batch_size):
+            batch_paths = paths[i : i + batch_size]
+            images = [Image.open(path) for path in batch_paths]
+            try:
+                outputs = CLIP_HASHER.hash_from_image_list(images)
+                results.extend(output.serialize() for output in outputs)
+            finally:
+                for img in images:
+                    img.close()
+        return results
+
     @staticmethod
     def get_examples() -> t.List[str]:
         return [
@@ -98,6 +128,7 @@ class TrivialCLIPIndex(signal_base.TrivialLinearSearchHashIndex):
 class CLIPFloatSignal(
     signal_base.SignalType,
     signal_base.BytesHasher,
+    signal_base.FileHasher,
 ):
     """
     CLIP signal using float32 vectors and cosine similarity.
@@ -135,6 +166,34 @@ class CLIPFloatSignal(
         image = Image.open(io.BytesIO(bytes_))
         vectors = CLIP_HASHER.get_float_vector_strs_from_image_list([image])
         return vectors[0]
+
+    @classmethod
+    def hash_from_file(cls, path: pathlib.Path) -> str:
+        """Generate CLIP float vector from an image file."""
+        image = Image.open(path)
+        vectors = CLIP_HASHER.get_float_vector_strs_from_image_list([image])
+        return vectors[0]
+
+    @classmethod
+    def hash_from_file_list(
+        cls, paths: t.List[pathlib.Path], batch_size: int = 64
+    ) -> t.List[str]:
+        """Batch-generate CLIP float vectors from multiple image files.
+
+        Images are processed in batches to avoid out-of-memory errors on large inputs.
+        """
+        if not paths:
+            return []
+        results: t.List[str] = []
+        for i in range(0, len(paths), batch_size):
+            batch_paths = paths[i : i + batch_size]
+            images = [Image.open(path) for path in batch_paths]
+            try:
+                results.extend(CLIP_HASHER.get_float_vector_strs_from_image_list(images))
+            finally:
+                for img in images:
+                    img.close()
+        return results
 
     @classmethod
     def compare_hash(
